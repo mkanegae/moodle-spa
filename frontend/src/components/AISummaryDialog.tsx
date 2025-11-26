@@ -16,7 +16,7 @@ import {
 } from '@mui/material';
 import { Close, SmartToy, Source } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
-import { moodleAPI } from '../services/api';
+import { bffAPI } from '../services/bffApi';
 
 interface AISummaryDialogProps {
   open: boolean;
@@ -55,7 +55,7 @@ const AISummaryDialog: React.FC<AISummaryDialogProps> = ({
     setSummary(null);
 
     try {
-      const result = await moodleAPI.summarizeContent(
+      const result = await bffAPI.summarizeContent(
         courseId,
         moduleName,
         mode === 'qa' ? query : undefined

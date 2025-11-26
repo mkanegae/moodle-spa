@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { CourseCategory } from '../types/content';
-import { moodleAPI } from '../services/api';
+import { bffAPI } from '../services/bffApi';
 
 interface CategoryState {
   categories: CourseCategory[];
@@ -16,7 +16,7 @@ export const useCategoryStore = create<CategoryState>((set) => ({
   fetchCategories: async () => {
     set({ loading: true, error: null });
     try {
-      const categoriesData = await moodleAPI.getCategories();
+      const categoriesData = await bffAPI.getCategories();
       set({ categories: categoriesData, loading: false });
     } catch (error: any) {
       console.error('Failed to fetch categories:', error);

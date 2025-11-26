@@ -24,7 +24,7 @@ import {
   VisibilityOff,
   SmartToy
 } from '@mui/icons-material';
-import { moodleAPI } from '../services/api';
+import { bffAPI } from '../services/bffApi';
 import { Course } from '../types/course';
 import { Activity, Section } from '../types/content';
 import WebCoachHeader from './WebCoachHeader';
@@ -81,7 +81,7 @@ const ContentListPage: React.FC<ContentListPageProps> = ({ onBack }) => {
     try {
       setLoading(true);
       setError(null);
-      const coursesData = await moodleAPI.getCourses();
+      const coursesData = await bffAPI.getCourses();
       setCourses(coursesData);
     } catch (err) {
       console.error('Error fetching courses:', err);
@@ -98,7 +98,7 @@ const ContentListPage: React.FC<ContentListPageProps> = ({ onBack }) => {
       setSelectedCourse(course);
 
       // Fetch real course content from Moodle API
-      const courseContentData = await moodleAPI.getCourseContent(course.id);
+      const courseContentData = await bffAPI.getCourseContent(course.id);
 
       // Transform the API response to match our Section type
       const sectionsData: Section[] = Array.isArray(courseContentData)
@@ -241,7 +241,7 @@ const ContentListPage: React.FC<ContentListPageProps> = ({ onBack }) => {
       if (attachedFiles.length > 0) {
         for (const file of attachedFiles) {
           try {
-            const uploadResult = await moodleAPI.uploadFile(file, selectedCourse.id);
+            const uploadResult = await bffAPI.uploadFile(file, selectedCourse.id);
             uploadedFiles.push(uploadResult);
           } catch (uploadError) {
             console.warn('Failed to upload file:', file.name, uploadError);
@@ -262,7 +262,7 @@ const ContentListPage: React.FC<ContentListPageProps> = ({ onBack }) => {
         activityData.files = uploadedFiles;
       }
 
-      await moodleAPI.createActivity(
+      await bffAPI.createActivity(
         selectedCourse.id,
         newContent.type === 'resource' ? 'resource' : newContent.type,
         activityData

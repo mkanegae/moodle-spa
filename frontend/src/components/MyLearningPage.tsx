@@ -38,9 +38,13 @@ const MyLearningPage: React.FC<MyLearningPageProps> = ({ onLogout }) => {
   const [sortBy, setSortBy] = useState<string>('recent');
 
   useEffect(() => {
+    console.log('MyLearningPage useEffect triggered', { token, isAuthenticated });
     // トークンが利用可能な場合のみデータをロード
     if (token && isAuthenticated) {
+      console.log('Calling loadDashboardData...');
       loadDashboardData();
+    } else {
+      console.log('Skipping loadDashboardData - token or isAuthenticated is false');
     }
   }, [token, isAuthenticated]);
 

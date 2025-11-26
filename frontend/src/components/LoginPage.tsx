@@ -11,7 +11,6 @@ import {
   CircularProgress
 } from '@mui/material';
 import { motion } from 'framer-motion';
-import { moodleAPI } from '../services/api';
 import { LoginCredentials } from '../types/auth';
 import { useAuthStore } from '../store/authStore';
 import { useCategoryStore } from '../store/categoryStore';
@@ -46,23 +45,35 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     setError(null);
 
     try {
-      const response = await moodleAPI.login(credentials);
-      console.log('Login API response:', response);
+      // BFF経由でログイン
+      const BFF_URL = process.env.REACT_APP_BFF_URL || 'http://localhost:3001';
+      const response = await fetch(`${BFF_URL}/api/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include', // セッションCookieを送信
+        body: JSON.stringify(credentials),
+      });
 
-      if (response.token) {
-        login(response.token);
-        localStorage.setItem('moodle_token', response.token);
+      const data = await response.json();
+      console.log('Login API response:', data);
+
+      if (response.ok && data.success) {
+        // BFF認証成功 - セッションCookieが設定される
+        // authStoreは認証済み状態にする（トークンは不要）
+        login('bff-authenticated');
         await fetchCategories();
         if (onLoginSuccess) {
-          onLoginSuccess(response.token);
+          onLoginSuccess('bff-authenticated');
         }
-        navigate('/dashboard');
+        navigate('/home');
       } else {
-        setError('Invalid credentials or missing token in response');
+        setError(data.error || 'Invalid credentials');
       }
     } catch (err: any) {
       console.error('Login catch error:', err);
-      const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Login failed';
+      const errorMessage = err.message || 'Login failed';
       setError(`Login failed: ${errorMessage}`);
     } finally {
       setLoading(false);

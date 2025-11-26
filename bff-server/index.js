@@ -1,4 +1,9 @@
+require('dotenv').config();
+
 const express = require('express');
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
 const session = require('express-session');
 const cors = require('cors');
 const axios = require('axios');
@@ -23,10 +28,26 @@ app.use(helmet({
 }));
 
 // CORS設定（CloudFrontからのみ許可）
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
+console.log('CORS allowed origins:', allowedOrigins);
+
 const corsOptions = {
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      console.log('CORS: Allowed origin:', origin);
+      callback(null, true);
+    } else {
+      console.log('CORS: Blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-  optionsSuccessStatus: 200
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 };
 app.use(cors(corsOptions));
 
@@ -41,7 +62,7 @@ const sessionConfig = {
   name: 'sessionId',
   cookie: {
     httpOnly: true,
-    secure: NODE_ENV === 'production', // HTTPS only in production
+    secure: true, // HTTPS required
     sameSite: 'lax',
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
@@ -75,9 +96,32 @@ app.use((req, res, next) => {
 
 // Authentication middleware
 const requireAuth = (req, res, next) => {
+  console.log('requireAuth check:', {
+    path: req.path,
+    method: req.method,
+    hasSession: !!req.session,
+    sessionId: req.session?.id,
+    hasMoodleToken: !!req.session?.moodleToken,
+    userId: req.session?.userId,
+    username: req.session?.username,
+    cookies: req.headers.cookie,
+    origin: req.headers.origin
+  });
+
   if (!req.session || !req.session.moodleToken) {
+    console.log('AUTH FAILED - No session or token', {
+      hasSession: !!req.session,
+      sessionKeys: req.session ? Object.keys(req.session) : [],
+      moodleToken: req.session?.moodleToken ? 'exists' : 'missing'
+    });
     return res.status(401).json({ error: 'Unauthorized' });
   }
+
+  console.log('AUTH SUCCESS - User authenticated:', {
+    userId: req.session.userId,
+    username: req.session.username
+  });
+
   next();
 };
 
@@ -144,14 +188,36 @@ app.post('/api/login', async (req, res) => {
     req.session.username = userInfo.username;
     req.session.fullname = userInfo.fullname;
 
-    console.log('Login successful:', { userId: userInfo.userid, username: userInfo.username });
-
-    // Return user info (but NOT the token)
-    res.json({
-      success: true,
+    console.log('Login successful:', {
       userId: userInfo.userid,
       username: userInfo.username,
-      fullname: userInfo.fullname
+      sessionId: req.session.id,
+      sessionSaved: !!req.session.moodleToken
+    });
+
+    console.log('Session cookie will be set:', {
+      cookieName: 'sessionId',
+      secure: sessionConfig.cookie.secure,
+      sameSite: sessionConfig.cookie.sameSite,
+      httpOnly: sessionConfig.cookie.httpOnly
+    });
+
+    // Explicitly save session before sending response
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error:', err);
+        return res.status(500).json({ error: 'Failed to save session' });
+      }
+
+      console.log('Session saved successfully');
+
+      // Return user info (but NOT the token)
+      res.json({
+        success: true,
+        userId: userInfo.userid,
+        username: userInfo.username,
+        fullname: userInfo.fullname
+      });
     });
   } catch (error) {
     console.error('Login error:', error.message);
@@ -235,6 +301,43 @@ app.get('/api/moodle/categories', requireAuth, async (req, res) => {
     res.json(Array.isArray(categories) ? categories : categories.categories || []);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Create categories
+app.post('/api/moodle/categories', requireAuth, async (req, res) => {
+  try {
+    const categoriesData = Array.isArray(req.body) ? req.body : [req.body];
+
+    const params = {};
+    categoriesData.forEach((categoryData, index) => {
+      params[`categories[${index}][name]`] = categoryData.name;
+      params[`categories[${index}][parent]`] = categoryData.parent || 0;
+
+      if (categoryData.idnumber) {
+        params[`categories[${index}][idnumber]`] = categoryData.idnumber;
+      }
+      if (categoryData.description) {
+        params[`categories[${index}][description]`] = categoryData.description;
+      }
+      if (categoryData.visible !== undefined) {
+        params[`categories[${index}][visible]`] = categoryData.visible;
+      }
+    });
+
+    const result = await callMoodleAPI(
+      req.session.moodleToken,
+      'core_course_create_categories',
+      params
+    );
+
+    res.json(Array.isArray(result) ? result : [result]);
+  } catch (error) {
+    console.error('Category creation error:', error);
+    res.status(500).json({
+      error: error.message,
+      details: error.response?.data || error
+    });
   }
 });
 
@@ -349,7 +452,7 @@ app.post('/api/ai/summarize', requireAuth, async (req, res) => {
   try {
     const { courseId, moduleName, query, maxChunks = 5 } = req.body;
 
-    const response = await axios.post(`${AI_API_URL}/api/summarize`, {
+    const response = await axios.post(`${API_SERVER_URL}/api/summarize`, {
       course_id: courseId,
       module_name: moduleName,
       query: query,
@@ -371,7 +474,7 @@ app.post('/api/ai/summarize', requireAuth, async (req, res) => {
 app.get('/api/ai/courses/:courseId/modules', requireAuth, async (req, res) => {
   try {
     const { courseId } = req.params;
-    const response = await axios.get(`${AI_API_URL}/api/courses/${courseId}/modules`);
+    const response = await axios.get(`${API_SERVER_URL}/api/courses/${courseId}/modules`);
     res.json(response.data);
   } catch (error) {
     console.error('Error fetching course modules:', error.message);
@@ -454,12 +557,32 @@ app.use((req, res) => {
 
 // Start server
 if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`BFF Server running on port ${PORT}`);
-    console.log(`Environment: ${NODE_ENV}`);
-    console.log(`Moodle URL: ${MOODLE_URL}`);
-    console.log(`AI API URL: ${AI_API_URL}`);
-  });
+  // SSL certificate paths
+  const sslKeyPath = path.join(__dirname, '../ssl/key.pem');
+  const sslCertPath = path.join(__dirname, '../ssl/cert.pem');
+
+  // Check if SSL certificates exist
+  if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
+    const httpsOptions = {
+      key: fs.readFileSync(sslKeyPath),
+      cert: fs.readFileSync(sslCertPath)
+    };
+
+    https.createServer(httpsOptions, app).listen(PORT, () => {
+      console.log(`BFF Server running on HTTPS port ${PORT}`);
+      console.log(`Environment: ${NODE_ENV}`);
+      console.log(`Moodle URL: ${MOODLE_URL}`);
+      console.log(`API Server URL: ${API_SERVER_URL}`);
+    });
+  } else {
+    console.warn('SSL certificates not found, falling back to HTTP');
+    app.listen(PORT, () => {
+      console.log(`BFF Server running on HTTP port ${PORT}`);
+      console.log(`Environment: ${NODE_ENV}`);
+      console.log(`Moodle URL: ${MOODLE_URL}`);
+      console.log(`API Server URL: ${API_SERVER_URL}`);
+    });
+  }
 }
 
 module.exports = app;

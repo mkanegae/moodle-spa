@@ -8,7 +8,8 @@ import {
   ModuleType,
 } from '../types/content';
 
-const BASE_URL = '/webservice/rest/server.php';
+const MOODLE_URL = process.env.REACT_APP_MOODLE_URL || '';
+const BASE_URL = `${MOODLE_URL}/webservice/rest/server.php`;
 
 class MoodleAPI {
   private api: AxiosInstance;
@@ -143,7 +144,7 @@ class MoodleAPI {
     });
 
     try {
-      const response = await axios.post('/login/token.php', data);
+      const response = await axios.post(`${MOODLE_URL}/login/token.php`, data);
       console.log('Login response:', response.data);
       return response.data;
     } catch (error: any) {
@@ -878,7 +879,7 @@ class MoodleAPI {
   // AI Summarization API (FastAPI backend)
   async summarizeContent(courseId: number, moduleName?: string, query?: string): Promise<any> {
     try {
-      const API_BASE_URL = 'http://localhost:8001';
+      const API_BASE_URL = process.env.REACT_APP_API_SERVER_URL || 'http://localhost:8001';
       const response = await axios.post(`${API_BASE_URL}/api/summarize`, {
         course_id: courseId,
         module_name: moduleName,
@@ -895,7 +896,7 @@ class MoodleAPI {
 
   async getCourseModules(courseId: number): Promise<any> {
     try {
-      const API_BASE_URL = 'http://localhost:8001';
+      const API_BASE_URL = process.env.REACT_APP_API_SERVER_URL || 'http://localhost:8001';
       const response = await axios.get(`${API_BASE_URL}/api/courses/${courseId}/modules`);
       return response.data;
     } catch (error: any) {

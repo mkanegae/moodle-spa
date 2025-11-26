@@ -16,7 +16,7 @@ import {
   Close,
   Source,
 } from '@mui/icons-material';
-import { moodleAPI } from '../services/api';
+import { bffAPI } from '../services/bffApi';
 
 interface Message {
   id: string;
@@ -84,7 +84,7 @@ const AIContentChat: React.FC<AIContentChatProps> = ({
 
     try {
       // RAG機能を使用してAIレスポンスを取得
-      const result = await moodleAPI.summarizeContent(
+      const result = await bffAPI.summarizeContent(
         courseId,
         contentTitle,
         currentInput

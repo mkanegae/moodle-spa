@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { moodleAPI } from '../services/api';
 
 interface AuthState {
   token: string | null;
@@ -16,7 +15,7 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       isAuthenticated: false,
       login: (authToken: string) => {
-        moodleAPI.setToken(authToken);
+        // BFF handles token management via session
         set({ token: authToken, isAuthenticated: true });
       },
       logout: () => {
@@ -24,7 +23,7 @@ export const useAuthStore = create<AuthState>()(
         localStorage.removeItem('moodle_token');
       },
       setToken: (token: string) => {
-        moodleAPI.setToken(token);
+        // BFF handles token management via session
         set({ token, isAuthenticated: true });
       },
     }),
@@ -32,10 +31,8 @@ export const useAuthStore = create<AuthState>()(
       name: 'auth-storage',
       partialize: (state) => ({ token: state.token, isAuthenticated: state.isAuthenticated }),
       onRehydrateStorage: () => (state) => {
-        // ページリロード時にlocalStorageから復元されたトークンをMoodleAPIに設定
-        if (state?.token) {
-          moodleAPI.setToken(state.token);
-        }
+        // BFF handles token management via session
+        // No need to set token here
       },
     }
   )

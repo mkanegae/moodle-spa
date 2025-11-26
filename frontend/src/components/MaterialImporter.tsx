@@ -31,7 +31,7 @@ import {
   Delete
 } from '@mui/icons-material';
 import Grid from '@mui/material/Grid';
-import { moodleAPI } from '../services/api';
+import { bffAPI } from '../services/bffApi';
 import { Course } from '../types/course';
 
 interface MaterialImporterProps {
@@ -84,7 +84,7 @@ const MaterialImporter: React.FC<MaterialImporterProps> = ({ onBack }) => {
   const fetchCourses = async () => {
     try {
       setLoading(true);
-      const coursesData = await moodleAPI.getCourses();
+      const coursesData = await bffAPI.getCourses();
       setCourses(coursesData);
     } catch (err) {
       setError('Failed to fetch courses');
@@ -207,7 +207,7 @@ const MaterialImporter: React.FC<MaterialImporterProps> = ({ onBack }) => {
         for (const file of materialData.files) {
           try {
             console.log('Uploading file:', file.name, 'size:', file.size);
-            const uploadResult = await moodleAPI.uploadFile(file, selectedCourse.id);
+            const uploadResult = await bffAPI.uploadFile(file, selectedCourse.id);
 
             if (uploadResult && !uploadResult.errorcode) {
               uploadedFiles.push(uploadResult);
@@ -247,7 +247,7 @@ const MaterialImporter: React.FC<MaterialImporterProps> = ({ onBack }) => {
         activityData.files = uploadedFiles;
       }
 
-      await moodleAPI.createActivity(
+      await bffAPI.createActivity(
         selectedCourse.id,
         materialData.type === 'file' ? 'resource' : materialData.type,
         activityData

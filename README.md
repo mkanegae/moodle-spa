@@ -142,10 +142,91 @@ moodle-spa/
 - コース一覧・コンテンツ表示
 - AIコンテンツチャット (ChromaDB統合)
 - コンテンツ登録・管理
+- **CSV一括登録** (カテゴリ、コース、ユーザー)
 - キャリアパス機能
 - Markdown & 動画表示
 - 数式表示 (KaTeX)
 - シンタックスハイライト
+
+## CSV一括登録機能
+
+Moodleの管理画面からCSVを使用してカテゴリ、コース、ユーザーを一括登録できます。
+
+### 提供されているテンプレート
+
+| テンプレートファイル | 用途 | ガイドドキュメント | クイックスタート |
+|------------------|------|------------------|-----------------|
+| `moodle-category-upload-template.csv` | カテゴリ一括作成 | `MOODLE_CATEGORY_UPLOAD_GUIDE.md` | `QUICK_START_CATEGORY.md` |
+| `moodle-course-upload-template.csv` | コース一括作成 | `MOODLE_CSV_GUIDE.md` | - |
+| `moodle-user-upload-template.csv` | ユーザー一括作成 | `MOODLE_USER_ENROLLMENT_GUIDE.md` | - |
+| `moodle-course-enrollment-template.csv` | コース登録一括実行 | `MOODLE_USER_ENROLLMENT_GUIDE.md` | - |
+
+### ドキュメント一覧
+
+| ドキュメント | 内容 | 対象者 |
+|------------|------|--------|
+| `CLI_CATEGORY_UPLOAD.md` | **CLIでカテゴリアップロード** | **GUIが使えない場合** |
+| `QUICK_START_CATEGORY.md` | カテゴリアップロード5分ガイド（GUI） | 初めての方 |
+| `MOODLE_CATEGORY_UPLOAD_STEPS.md` | カテゴリアップロード詳細手順（GUI） | 詳しく知りたい方 |
+| `MOODLE_CATEGORY_UPLOAD_GUIDE.md` | カテゴリCSVフォーマット完全ガイド | 管理者 |
+| `MOODLE_CSV_GUIDE.md` | コースCSVフォーマット完全ガイド | 管理者 |
+| `MOODLE_USER_ENROLLMENT_GUIDE.md` | ユーザー・登録CSVガイド | 管理者 |
+
+### CSV登録の順序
+
+**重要**: 以下の順序で登録してください：
+
+1. **カテゴリ作成** → `moodle-category-upload-template.csv`
+   - コースを作成する前に必須
+   - カテゴリIDを確認してメモ
+
+2. **コース作成** → `moodle-course-upload-template.csv`
+   - カテゴリIDを使用してコースを作成
+   - コースIDを確認してメモ
+
+3. **ユーザー作成** → `moodle-user-upload-template.csv`
+   - システムにユーザーを追加
+
+4. **コース登録** → `moodle-course-enrollment-template.csv`
+   - ユーザーをコースに登録
+
+### カテゴリアップロード方法
+
+#### 方法1: CLI（コマンドライン）- GUIが使えない場合
+
+```bash
+# BFFサーバーを起動
+cd bff-server
+npm start
+
+# 別のターミナルでカテゴリをアップロード
+cd /home/kanegae100860/moodle-spa
+node upload-categories.js moodle-category-upload-template.csv admin adminpassword
+```
+
+詳しくは `CLI_CATEGORY_UPLOAD.md` を参照してください。
+
+#### 方法2: GUI（Moodle管理画面）
+
+Moodleバージョン3.7以上の場合:
+1. Moodle管理画面にログイン
+2. **サイト管理 > コース > カテゴリをアップロード**
+3. CSVファイルをアップロード
+
+詳しくは `QUICK_START_CATEGORY.md` または `MOODLE_CATEGORY_UPLOAD_STEPS.md` を参照してください。
+
+### よくあるエラー
+
+#### "カテゴリIDでカテゴリを解決できませんでした"
+
+**原因**: コースCSVで指定したカテゴリIDが存在しない
+
+**解決方法**:
+1. 先に `MOODLE_CATEGORY_UPLOAD_GUIDE.md` または `CLI_CATEGORY_UPLOAD.md` を参照してカテゴリを作成
+2. Moodle管理画面またはCLI実行結果でカテゴリIDを確認
+3. コースCSVの `category` フィールドを正しいIDに更新
+
+詳しくは各ガイドドキュメントを参照してください。
 
 ## トラブルシューティング
 

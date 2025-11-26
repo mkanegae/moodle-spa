@@ -18,7 +18,7 @@ import {
   Create
 } from '@mui/icons-material';
 import Grid from '@mui/material/Grid';
-import { moodleAPI } from '../services/api';
+import { bffAPI } from '../services/bffApi';
 import { Course } from '../types/course';
 import { LoadingState, ErrorState, CourseCard } from './shared';
 
@@ -69,16 +69,9 @@ const CoursesPage: React.FC<CoursesPageProps> = ({ onLogout, onNavigateToContent
       setLoading(true);
       setError(null);
 
-      // API呼び出し前にトークンの存在を確認
-      const token = localStorage.getItem('moodle_token');
-      if (!token) {
-        setError('Authentication token not found. Please login again.');
-        setCourses([]);
-        return;
-      }
-
-      console.log('Fetching courses with token:', token.substring(0, 10) + '...');
-      const coursesData = await moodleAPI.getCourses();
+      // BFF API経由で認証済みのリクエストを送信（セッションCookieで認証）
+      console.log('Fetching courses via BFF API...');
+      const coursesData = await bffAPI.getCourses();
 
       console.log('Received courses data:', coursesData);
       console.log('Available course IDs:', coursesData.map(c => c.id));

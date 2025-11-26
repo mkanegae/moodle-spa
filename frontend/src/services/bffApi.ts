@@ -1,181 +1,124 @@
-import express from 'express';
-import cors from 'cors';
-import { moodleAPI } from './api';
-import { DashboardData } from '../types/dashboard';
+import axios, { AxiosInstance } from 'axios';
 
-const app = express();
-const PORT = process.env.BFF_PORT || 4000;
+const BFF_URL = process.env.REACT_APP_BFF_URL || 'http://localhost:3001';
 
-app.use(cors());
-app.use(express.json());
+class BffAPI {
+  private api: AxiosInstance;
 
-// Moodle認証トークンを安全に管理するためのミドルウェア
-app.use((req, res, next) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  if (token) {
-    moodleAPI.setToken(token);
+  constructor() {
+    this.api = axios.create({
+      baseURL: BFF_URL,
+      timeout: 60000,
+      withCredentials: true, // セッションCookieを送信
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    // レスポンスインターセプター - エラーハンドリング
+    this.api.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          console.error('Unauthorized - session expired');
+          // セッション切れの場合は認証状態をクリア
+          // authStoreをクリアすることで、ProtectedRouteが自動的にログイン画面にリダイレクトする
+          if (typeof window !== 'undefined') {
+            // authStoreをインポートせずに、直接localStorageをクリアする
+            localStorage.removeItem('auth-storage');
+            // ログイン画面にリダイレクト（React Routerを通さないため、完全なページリロード）
+            window.location.href = '/login';
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
   }
-  next();
-});
 
-// ダッシュボードデータ取得エンドポイント
-app.get('/api/dashboard', async (req, res) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (!token) {
-      return res.status(401).json({ error: 'Authorization token required' });
-    }
-
-    moodleAPI.setToken(token);
-
-    // コースと進捗データを取得
-    const [courses, categories] = await Promise.all([
-      moodleAPI.getCourses(),
-      moodleAPI.getCategories()
-    ]);
-
-    // 進捗データの変換とキャッシュ
-    const dashboardData = await transformToDashboardData(courses, categories);
-
-    res.json(dashboardData);
-  } catch (error: any) {
-    console.error('Dashboard API error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch dashboard data',
-      message: error.message
-    });
+  // ユーザー情報を取得
+  async getUserInfo(): Promise<any> {
+    const response = await this.api.get('/api/user/info');
+    return response.data;
   }
-});
 
-// コース完了状況取得エンドポイント
-app.get('/api/course/:courseId/completion', async (req, res) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (!token) {
-      return res.status(401).json({ error: 'Authorization token required' });
-    }
-
-    moodleAPI.setToken(token);
-    const courseId = parseInt(req.params.courseId);
-
-    const completion = await moodleAPI.makeRequest('core_completion_get_course_completion_status', {
-      courseid: courseId,
-      userid: 0
-    });
-
-    res.json(completion);
-  } catch (error: any) {
-    console.error('Course completion API error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch course completion',
-      message: error.message
-    });
+  // コース一覧を取得
+  async getCourses(): Promise<any[]> {
+    const response = await this.api.get('/api/moodle/courses');
+    return response.data;
   }
-});
 
-// カテゴリ別コース取得エンドポイント
-app.get('/api/categories/:categoryId/courses', async (req, res) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (!token) {
-      return res.status(401).json({ error: 'Authorization token required' });
-    }
-
-    moodleAPI.setToken(token);
-    const categoryId = parseInt(req.params.categoryId);
-
-    const courses = await moodleAPI.makeRequest('core_course_get_courses_by_field', {
-      field: 'category',
-      value: categoryId
-    });
-
-    res.json(courses);
-  } catch (error: any) {
-    console.error('Category courses API error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch category courses',
-      message: error.message
-    });
+  // カテゴリ一覧を取得
+  async getCategories(): Promise<any[]> {
+    const response = await this.api.get('/api/moodle/categories');
+    return response.data;
   }
-});
 
-// クオーター別データフィルタリングエンドポイント
-app.get('/api/dashboard/quarter/:quarter', async (req, res) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (!token) {
-      return res.status(401).json({ error: 'Authorization token required' });
-    }
-
-    moodleAPI.setToken(token);
-    const quarter = req.params.quarter;
-
-    const dashboardData = await getDashboardData();
-    const quarterData = dashboardData.parentCategories.find(q => q.parentCategory.id.toString() === quarter);
-
-    if (!quarterData) {
-      return res.status(404).json({ error: 'Quarter not found' });
-    }
-
-    res.json(quarterData);
-  } catch (error: any) {
-    console.error('Quarter data API error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch quarter data',
-      message: error.message
-    });
+  // カテゴリ作成
+  async createCategories(categoriesData: any[]): Promise<any[]> {
+    const response = await this.api.post('/api/moodle/categories', categoriesData);
+    return response.data;
   }
-});
 
-// ヘルスチェックエンドポイント
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    service: 'Moodle Learning Dashboard BFF'
-  });
-});
+  // 汎用 Moodle API コール
+  async callMoodleAPI(wsfunction: string, params: Record<string, any> = {}): Promise<any> {
+    const response = await this.api.post('/api/moodle/api', {
+      wsfunction,
+      params,
+    });
+    return response.data;
+  }
 
-async function transformToDashboardData(courses: any[], categories: any[]): Promise<DashboardData> {
-  // ダッシュボード用のデータ変換ロジック
-  // この関数は dashboardApi.ts の getDashboardData() と同様の処理を行う
+  // コースコンテンツを取得
+  async getCourseContent(courseid: number): Promise<any> {
+    const response = await this.api.get(`/api/moodle/courses/${courseid}/contents`);
+    return response.data;
+  }
 
-  // 実装は dashboardApi.ts と同様
-  // (簡略化のため、クライアント側の実装を優先)
+  // コース作成
+  async createCourse(courseData: any): Promise<any> {
+    const response = await this.api.post('/api/moodle/courses', courseData);
+    return response.data;
+  }
 
-  return {
-    parentCategories: [],
-    totalProgress: {
-      totalCourses: courses.length,
-      completedCourses: 0,
-      averageProgress: 0
-    }
-  };
+  // アクティビティ作成
+  async createActivity(courseid: number, modulename: string, activityData: any): Promise<any> {
+    const response = await this.api.post(`/api/moodle/courses/${courseid}/activities`, {
+      modulename,
+      ...activityData
+    });
+    return response.data;
+  }
+
+  // ファイルアップロード
+  async uploadFile(file: File, courseid: number): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('courseid', courseid.toString());
+
+    const response = await this.api.post('/api/moodle/files/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
+  // AI要約
+  async summarizeContent(courseId: number, moduleName?: string, query?: string): Promise<any> {
+    const response = await this.api.post('/api/ai/summarize', {
+      courseId,
+      moduleName,
+      query,
+      maxChunks: 5
+    });
+    return response.data;
+  }
+
+  // コースモジュール取得
+  async getCourseModules(courseId: number): Promise<any> {
+    const response = await this.api.get(`/api/ai/courses/${courseId}/modules`);
+    return response.data;
+  }
 }
 
-async function getDashboardData(): Promise<DashboardData> {
-  const [courses, categories] = await Promise.all([
-    moodleAPI.getCourses(),
-    moodleAPI.getCategories()
-  ]);
-
-  return transformToDashboardData(courses, categories);
-}
-
-// エラーハンドリングミドルウェア
-app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('BFF Error:', error);
-  res.status(500).json({
-    error: 'Internal server error',
-    message: error.message
-  });
-});
-
-if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`BFF Server running on port ${PORT}`);
-    console.log(`Health check: http://localhost:${PORT}/api/health`);
-  });
-}
-
-export default app;
+export const bffAPI = new BffAPI();

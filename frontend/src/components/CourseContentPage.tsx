@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { moodleAPI } from '../services/api';
+import { bffAPI } from '../services/bffApi';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
@@ -92,7 +92,7 @@ const CourseContentPage: React.FC<CourseContentPageProps> = ({ courseId, onBack 
       setLoading(true);
       setError(null);
 
-      const content = await moodleAPI.getCourseContent(courseId);
+      const content = await bffAPI.getCourseContent(courseId);
 
       if (Array.isArray(content)) {
         setSections(content);
@@ -104,14 +104,16 @@ const CourseContentPage: React.FC<CourseContentPageProps> = ({ courseId, onBack 
         }
       }
 
-      const courses = await moodleAPI.getCourses();
+      const courses = await bffAPI.getCourses();
       const course = courses.find(c => c.id === courseId);
       if (course) {
         setCourseName(course.fullname);
       }
 
-      const htmlData = await moodleAPI.getResourceHtmlContents(courseId);
-      setHtmlContents(htmlData);
+      // TODO: BFF APIにgetResourceHtmlContentsエンドポイントを追加する必要があります
+      // const htmlData = await bffAPI.getResourceHtmlContents(courseId);
+      // setHtmlContents(htmlData);
+      setHtmlContents([]);
     } catch (error: any) {
       console.error('Failed to load course content:', error);
       setError(error.message || 'コースコンテンツの読み込みに失敗しました。');
@@ -185,7 +187,9 @@ const CourseContentPage: React.FC<CourseContentPageProps> = ({ courseId, onBack 
 
   const fetchMarkdownContent = async (fileUrl: string): Promise<string> => {
     try {
-      return await moodleAPI.fetchMarkdownFile(fileUrl);
+      // TODO: BFF APIにfetchMarkdownFileエンドポイントを追加する必要があります
+      // return await bffAPI.fetchMarkdownFile(fileUrl);
+      return 'Markdownファイルの表示は現在準備中です。';
     } catch (error) {
       console.error('Error fetching markdown:', error);
       return 'Markdownファイルの読み込みに失敗しました。';
@@ -196,7 +200,9 @@ const CourseContentPage: React.FC<CourseContentPageProps> = ({ courseId, onBack 
     if (!module.contents) return null;
     const videoFile = module.contents.find(c => isVideoFile(c.filename));
     if (!videoFile) return null;
-    return moodleAPI.addTokenToFileUrl(videoFile.fileurl);
+    // TODO: BFF APIにaddTokenToFileUrlエンドポイントを追加する必要があります
+    // return bffAPI.addTokenToFileUrl(videoFile.fileurl);
+    return videoFile.fileurl;
   };
 
   const getModuleContent = (module: Module) => {

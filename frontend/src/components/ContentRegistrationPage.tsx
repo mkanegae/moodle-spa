@@ -19,7 +19,7 @@ import {
   Chip
 } from '@mui/material';
 import { ArrowBack, Save } from '@mui/icons-material';
-import { moodleAPI } from '../services/api';
+import { bffAPI } from '../services/bffApi';
 import { CourseCategory, CourseCreateRequest, ContentCreationResponse } from '../types/content';
 import WebCoachHeader from './WebCoachHeader';
 
@@ -80,7 +80,7 @@ const ContentRegistrationPage: React.FC<ContentRegistrationPageProps> = ({ onBac
 
   const fetchCategories = async () => {
     try {
-      const categoriesData = await moodleAPI.getCategories();
+      const categoriesData = await bffAPI.getCategories();
       setCategories(categoriesData);
     } catch (err) {
       console.error('Error fetching categories:', err);
@@ -99,7 +99,7 @@ const ContentRegistrationPage: React.FC<ContentRegistrationPageProps> = ({ onBac
 
       switch (contentType) {
         case 'course':
-          result = await moodleAPI.createCourse(courseForm);
+          result = await bffAPI.createCourse(courseForm);
           setSuccess(`Course "${courseForm.fullname}" created successfully with ID: ${result.id}`);
           setCourseForm({
             fullname: '',
@@ -120,7 +120,7 @@ const ContentRegistrationPage: React.FC<ContentRegistrationPageProps> = ({ onBac
           break;
 
         case 'activity':
-          result = await moodleAPI.createActivity(activityForm.courseid, activityForm.modulename, activityForm);
+          result = await bffAPI.createActivity(activityForm.courseid, activityForm.modulename, activityForm);
           setSuccess(`Activity "${activityForm.name}" created successfully with ID: ${result.id}`);
           setActivityForm({
             ...activityForm,
@@ -132,7 +132,7 @@ const ContentRegistrationPage: React.FC<ContentRegistrationPageProps> = ({ onBac
         case 'resource':
           if (resourceForm.files.length > 0) {
             for (const file of resourceForm.files) {
-              await moodleAPI.uploadFile(file, resourceForm.courseid);
+              await bffAPI.uploadFile(file, resourceForm.courseid);
             }
           }
           setSuccess(`Resource "${resourceForm.name}" created successfully`);

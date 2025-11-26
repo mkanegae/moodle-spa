@@ -38,3 +38,10 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
+
+# MCP configuration with secrets
+mcp.json
+mcp.json:Zone.Identifier
+
+# SSL certificates
+ssl/

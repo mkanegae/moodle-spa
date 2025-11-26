@@ -1,4 +1,4 @@
-import { moodleAPI } from './api';
+import { bffAPI } from './bffApi';
 import { DashboardData, ParentCategoryProgress, CategoryProgress, CourseProgress } from '../types/dashboard';
 import { CourseCategory } from '../types/content';
 
@@ -7,12 +7,12 @@ class DashboardAPI {
 
   async getDashboardData(): Promise<DashboardData> {
     try {
-      console.log('Starting dashboard data fetch...');
+      console.log('Starting dashboard data fetch via BFF...');
 
       // ユーザーIDを取得（エラーが発生しても続行）
       if (!this.userId) {
         try {
-          const userInfo = await moodleAPI.getUserInfo();
+          const userInfo = await bffAPI.getUserInfo();
           this.userId = (userInfo as any).userid;
           console.log('User ID obtained:', this.userId);
         } catch (error) {
@@ -21,17 +21,17 @@ class DashboardAPI {
         }
       }
 
-      // Moodle APIから必要なデータを取得（タイムアウト対策でシーケンシャルに変更）
-      console.log('Fetching courses...');
-      const courses = await moodleAPI.getCourses();
+      // BFF経由で必要なデータを取得（タイムアウト対策でシーケンシャルに変更）
+      console.log('Fetching courses via BFF...');
+      const courses = await bffAPI.getCourses();
       console.log(`Found ${courses.length} courses`);
       console.log('Course names:', courses.map(c => ({ id: c.id, name: c.fullname })));
       console.log('Course categoryid values:', courses.map(c => ({ id: c.id, categoryid: c.categoryid, categoryname: c.categoryname })));
 
-      console.log('Fetching categories...');
+      console.log('Fetching categories via BFF...');
       let categories: CourseCategory[];
       try {
-        categories = await moodleAPI.getCategories();
+        categories = await bffAPI.getCategories();
         console.log(`Found ${categories.length} categories`);
         console.log('Category names:', categories.map(c => ({ id: c.id, name: c.name })));
       } catch (error: any) {
@@ -237,8 +237,8 @@ class DashboardAPI {
         return { progressPercentage: 0, isCompleted: false };
       }
 
-      // Moodle completion APIを使用
-      const completion = await moodleAPI.makeRequest<any>('core_completion_get_course_completion_status', {
+      // BFF経由でMoodle completion APIを使用
+      const completion = await bffAPI.callMoodleAPI('core_completion_get_course_completion_status', {
         courseid: courseId,
         userid: this.userId
       });
@@ -252,7 +252,7 @@ class DashboardAPI {
       }
 
       // フォールバック: コース内容から進捗を推定
-      const courseContent = await moodleAPI.getCourseContent(courseId);
+      const courseContent = await bffAPI.getCourseContent(courseId);
       if (courseContent && Array.isArray(courseContent)) {
         const totalActivities = courseContent.reduce((total, section) =>
           total + (section.modules ? section.modules.length : 0), 0);

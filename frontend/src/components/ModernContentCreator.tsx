@@ -28,7 +28,7 @@ import {
   Description,
   Edit
 } from '@mui/icons-material';
-import { moodleAPI } from '../services/api';
+import { bffAPI } from '../services/bffApi';
 import { CourseCategory, CourseCreateRequest } from '../types/content';
 
 interface ModernContentCreatorProps {
@@ -100,7 +100,7 @@ const ModernContentCreator: React.FC<ModernContentCreatorProps> = ({ onBack, cat
             activities: [{
               type: 'page',
               name: title,
-              intro: content
+              content: content
             }]
           }]
         };
@@ -141,7 +141,7 @@ const ModernContentCreator: React.FC<ModernContentCreatorProps> = ({ onBack, cat
 
     try {
       // Create the course
-      const courseResult = await moodleAPI.createCourse(courseData);
+      const courseResult = await bffAPI.createCourse(courseData);
 
       if (!courseResult.id) {
         throw new Error('Failed to create course');
@@ -155,7 +155,7 @@ const ModernContentCreator: React.FC<ModernContentCreatorProps> = ({ onBack, cat
 
         for (const activity of section.activities) {
           try {
-            await moodleAPI.createActivity(courseResult.id, activity.type, {
+            await bffAPI.createActivity(courseResult.id, activity.type, {
               name: activity.name,
               intro: activity.content,
               introformat: 1

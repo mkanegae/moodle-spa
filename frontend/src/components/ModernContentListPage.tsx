@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Container, Box, CircularProgress, Alert, IconButton } from '@mui/material';
 import { Home } from '@mui/icons-material';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
-import { moodleAPI } from '../services/api';
+import { bffAPI } from '../services/bffApi';
 import { Course } from '../types/course';
 import WebCoachHeader from './WebCoachHeader';
 import ModernCourseCard from './ModernCourseCard';
@@ -26,7 +26,7 @@ const ModernContentListPage: React.FC<ModernContentListPageProps> = ({ onBack, o
     try {
       setLoading(true);
       setError(null);
-      const coursesData = await moodleAPI.getCourses();
+      const coursesData = await bffAPI.getCourses();
 
       // ダミーの進捗データを追加（実際のアプリでは実データを使用）
       const coursesWithProgress = coursesData.map((course, index) => ({
