@@ -1,9 +1,5 @@
-require('dotenv').config();
 
 const express = require('express');
-const https = require('https');
-const fs = require('fs');
-const path = require('path');
 const session = require('express-session');
 const cors = require('cors');
 const axios = require('axios');
@@ -28,30 +24,30 @@ app.use(helmet({
 }));
 
 // CORS設定（CloudFrontからのみ許可）
-const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
-console.log('CORS allowed origins:', allowedOrigins);
-
 const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      console.log('CORS: Allowed origin:', origin);
-      callback(null, true);
-    } else {
-      console.log('CORS: Blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
   credentials: true,
-  optionsSuccessStatus: 200,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
 
-app.use(express.json());
+// Trust proxy - required for secure cookies behind reverse proxy
+app.set('trust proxy', 1);
+
+app.use(express.json({
+  verify: (req, res, buf, encoding) => {
+    if (buf && buf.length) {
+      const rawBody = buf.toString(encoding || 'utf8');
+      console.log('=== RAW BODY RECEIVED ===');
+      console.log('Method:', req.method);
+      console.log('Path:', req.path);
+      console.log('Content-Type:', req.headers['content-type']);
+      console.log('Raw Body String:', rawBody);
+      console.log('Raw Body Length:', rawBody.length);
+      console.log('Raw Body Bytes:', Array.from(buf).slice(0, 100));
+    }
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // Session configuration (memory-based for simplicity)
@@ -61,14 +57,50 @@ const sessionConfig = {
   saveUninitialized: false,
   name: 'sessionId',
   cookie: {
-    httpOnly: true,
-    secure: true, // HTTPS required
-    sameSite: 'lax',
+    httpOnly: true, // Prevent client-side access for security
+    secure: NODE_ENV === 'production', // HTTPS only in production
+    sameSite: NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-origin in HTTPS
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 };
 
 app.use(session(sessionConfig));
+
+// Session event logging
+app.use((req, res, next) => {
+  // リクエスト受信時のCookie情報
+  console.log('=== Cookie & Session Details ===');
+  console.log('Cookie Header:', req.headers.cookie || 'No Cookie');
+  console.log('Session ID:', req.sessionID || 'No Session ID');
+  console.log('Session exists:', !!req.session);
+
+  if (req.session) {
+    console.log('Session data:', {
+      hasToken: !!req.session.moodleToken,
+      userId: req.session.userId,
+      username: req.session.username,
+      cookie: {
+        originalMaxAge: req.session.cookie.originalMaxAge,
+        expires: req.session.cookie.expires,
+        httpOnly: req.session.cookie.httpOnly,
+        secure: req.session.cookie.secure,
+        sameSite: req.session.cookie.sameSite
+      }
+    });
+  }
+
+  // レスポンス送信時のSet-Cookie情報
+  const originalSetHeader = res.setHeader;
+  res.setHeader = function(name, value) {
+    if (name.toLowerCase() === 'set-cookie') {
+      console.log('=== Set-Cookie Header ===');
+      console.log('Setting Cookie:', value);
+    }
+    return originalSetHeader.apply(this, arguments);
+  };
+
+  next();
+});
 
 // Rate limiting
 const limiter = rateLimit({
@@ -96,32 +128,17 @@ app.use((req, res, next) => {
 
 // Authentication middleware
 const requireAuth = (req, res, next) => {
-  console.log('requireAuth check:', {
-    path: req.path,
-    method: req.method,
-    hasSession: !!req.session,
-    sessionId: req.session?.id,
-    hasMoodleToken: !!req.session?.moodleToken,
-    userId: req.session?.userId,
-    username: req.session?.username,
-    cookies: req.headers.cookie,
-    origin: req.headers.origin
-  });
+  console.log('=== Authentication Check ===');
+  console.log('Path:', req.path);
+  console.log('Has session:', !!req.session);
+  console.log('Has moodleToken:', !!req.session?.moodleToken);
 
   if (!req.session || !req.session.moodleToken) {
-    console.log('AUTH FAILED - No session or token', {
-      hasSession: !!req.session,
-      sessionKeys: req.session ? Object.keys(req.session) : [],
-      moodleToken: req.session?.moodleToken ? 'exists' : 'missing'
-    });
+    console.log('Authentication FAILED - Returning 401');
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  console.log('AUTH SUCCESS - User authenticated:', {
-    userId: req.session.userId,
-    username: req.session.username
-  });
-
+  console.log('Authentication SUCCESS');
   next();
 };
 
@@ -159,9 +176,15 @@ app.get('/api/health', (req, res) => {
 // Login
 app.post('/api/login', async (req, res) => {
   try {
+    console.log('=== Raw Request Debug ===');
+    console.log('Content-Type:', req.headers['content-type']);
+    console.log('Raw Body:', JSON.stringify(req.body));
+    console.log('Body type:', typeof req.body);
+
     const { username, password, service = 'moodle_mobile_app' } = req.body;
 
-    console.log('Login attempt:', { username, service });
+    console.log('Login attempt:', { username, service, passwordLength: password?.length });
+    console.log('Password value:', password);
 
     // Call Moodle login API
     const formData = new FormData();
@@ -169,9 +192,13 @@ app.post('/api/login', async (req, res) => {
     formData.append('password', password);
     formData.append('service', service);
 
+    console.log('Sending request to:', `${MOODLE_URL}/login/token.php`);
     const response = await axios.post(`${MOODLE_URL}/login/token.php`, formData, {
       headers: formData.getHeaders()
     });
+
+    console.log('Moodle response status:', response.status);
+    console.log('Moodle response data:', response.data);
 
     if (response.data.error) {
       return res.status(401).json({ error: response.data.error });
@@ -179,30 +206,16 @@ app.post('/api/login', async (req, res) => {
 
     const { token } = response.data;
 
-    // Get user info
-    const userInfo = await callMoodleAPI(token, 'core_webservice_get_site_info');
-
     // Save to session (server-side only)
     req.session.moodleToken = token;
-    req.session.userId = userInfo.userid;
-    req.session.username = userInfo.username;
-    req.session.fullname = userInfo.fullname;
+    req.session.username = username;
 
-    console.log('Login successful:', {
-      userId: userInfo.userid,
-      username: userInfo.username,
-      sessionId: req.session.id,
-      sessionSaved: !!req.session.moodleToken
-    });
+    console.log('=== Session Created on Login ===');
+    console.log('Login successful:', { username });
+    console.log('Session ID:', req.sessionID);
+    console.log('Saving session explicitly...');
 
-    console.log('Session cookie will be set:', {
-      cookieName: 'sessionId',
-      secure: sessionConfig.cookie.secure,
-      sameSite: sessionConfig.cookie.sameSite,
-      httpOnly: sessionConfig.cookie.httpOnly
-    });
-
-    // Explicitly save session before sending response
+    // Explicitly save session before responding
     req.session.save((err) => {
       if (err) {
         console.error('Session save error:', err);
@@ -214,13 +227,14 @@ app.post('/api/login', async (req, res) => {
       // Return user info (but NOT the token)
       res.json({
         success: true,
-        userId: userInfo.userid,
-        username: userInfo.username,
-        fullname: userInfo.fullname
+        username: username,
+        message: 'ログインに成功しました'
       });
     });
   } catch (error) {
     console.error('Login error:', error.message);
+    console.error('Error response status:', error.response?.status);
+    console.error('Error response data:', error.response?.data);
     res.status(401).json({
       error: error.response?.data?.error || 'Login failed'
     });
@@ -229,11 +243,20 @@ app.post('/api/login', async (req, res) => {
 
 // Logout
 app.post('/api/logout', (req, res) => {
+  const sessionId = req.sessionID;
+  const username = req.session?.username;
+
+  console.log('=== Session Destroy on Logout ===');
+  console.log('Destroying session:', { sessionId, username });
+
   req.session.destroy((err) => {
     if (err) {
       console.error('Logout error:', err);
       return res.status(500).json({ error: 'Logout failed' });
     }
+
+    console.log('Session destroyed successfully');
+    console.log('Clearing Cookie: sessionId');
     res.clearCookie('sessionId');
     res.json({ success: true });
   });
@@ -301,43 +324,6 @@ app.get('/api/moodle/categories', requireAuth, async (req, res) => {
     res.json(Array.isArray(categories) ? categories : categories.categories || []);
   } catch (error) {
     res.status(500).json({ error: error.message });
-  }
-});
-
-// Create categories
-app.post('/api/moodle/categories', requireAuth, async (req, res) => {
-  try {
-    const categoriesData = Array.isArray(req.body) ? req.body : [req.body];
-
-    const params = {};
-    categoriesData.forEach((categoryData, index) => {
-      params[`categories[${index}][name]`] = categoryData.name;
-      params[`categories[${index}][parent]`] = categoryData.parent || 0;
-
-      if (categoryData.idnumber) {
-        params[`categories[${index}][idnumber]`] = categoryData.idnumber;
-      }
-      if (categoryData.description) {
-        params[`categories[${index}][description]`] = categoryData.description;
-      }
-      if (categoryData.visible !== undefined) {
-        params[`categories[${index}][visible]`] = categoryData.visible;
-      }
-    });
-
-    const result = await callMoodleAPI(
-      req.session.moodleToken,
-      'core_course_create_categories',
-      params
-    );
-
-    res.json(Array.isArray(result) ? result : [result]);
-  } catch (error) {
-    console.error('Category creation error:', error);
-    res.status(500).json({
-      error: error.message,
-      details: error.response?.data || error
-    });
   }
 });
 
@@ -512,6 +498,387 @@ app.get('/api/dashboard', requireAuth, async (req, res) => {
   }
 });
 
+// ==========================================
+// Additional Moodle API Endpoints
+// ==========================================
+
+/**
+ * GET /api/moodle/getcoursebyfield
+ * カテゴリなどのフィールドからコースを取得
+ */
+app.get('/api/moodle/getcoursebyfield', requireAuth, async (req, res) => {
+  try {
+    const { field, value } = req.query;
+
+    if (!field || !value) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        detail: 'field and value query parameters are required'
+      });
+    }
+
+    const result = await callMoodleAPI(
+      req.session.moodleToken,
+      'core_course_get_courses_by_field',
+      {
+        field: field,
+        value: value
+      }
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error('[Moodle GetCourseByField] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/moodle/badges
+ * バッジ一覧を取得
+ */
+app.get('/api/moodle/badges', requireAuth, async (req, res) => {
+  try {
+    const result = await callMoodleAPI(
+      req.session.moodleToken,
+      'core_badges_get_badges',
+      {}
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error('[Moodle GetBadges] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/moodle/user-badges/:userid
+ * ユーザー獲得バッジを取得
+ */
+app.get('/api/moodle/user-badges/:userid', requireAuth, async (req, res) => {
+  try {
+    const { userid } = req.params;
+
+    const result = await callMoodleAPI(
+      req.session.moodleToken,
+      'core_badges_get_user_badges',
+      {
+        userid: userid
+      }
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error('[Moodle GetUserBadges] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// WebCoach API Endpoints
+// ==========================================
+
+/**
+ * GET /api/webcoach/profile/:userid
+ * プロフィール情報を取得
+ */
+app.get('/api/webcoach/profile/:userid', requireAuth, async (req, res) => {
+  try {
+    const { userid } = req.params;
+
+    const response = await axios.get(
+      `${API_SERVER_URL}/api/profile/${userid}`,
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('[WebCoach Profile] Error:', error.message);
+
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+
+    res.status(500).json({
+      error: 'Failed to get profile',
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/webcoach/updateprofile/:userid
+ * プロフィール情報を更新
+ */
+app.post('/api/webcoach/updateprofile/:userid', requireAuth, async (req, res) => {
+  try {
+    const { userid } = req.params;
+    const profileData = req.body;
+
+    const response = await axios.post(
+      `${API_SERVER_URL}/api/updateprofile/${userid}`,
+      profileData,
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('[WebCoach UpdateProfile] Error:', error.message);
+
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+
+    res.status(500).json({
+      error: 'Failed to update profile',
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/webcoach/resumecourse/:userid
+ * コース再開情報を取得
+ */
+app.get('/api/webcoach/resumecourse/:userid', requireAuth, async (req, res) => {
+  try {
+    const { userid } = req.params;
+    const { limit } = req.query;
+
+    const response = await axios.get(
+      `${API_SERVER_URL}/api/resumecourse/${userid}`,
+      {
+        params: { limit: limit || 5 },
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('[WebCoach ResumeCourse] Error:', error.message);
+
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+
+    res.status(500).json({
+      error: 'Failed to get resume courses',
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/webcoach/recomendbadge/:userid
+ * おすすめバッジを取得
+ */
+app.get('/api/webcoach/recomendbadge/:userid', requireAuth, async (req, res) => {
+  try {
+    const { userid } = req.params;
+
+    const response = await axios.get(
+      `${API_SERVER_URL}/api/recomendbadge/${userid}`,
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('[WebCoach RecommendBadge] Error:', error.message);
+
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+
+    res.status(500).json({
+      error: 'Failed to get recommended badges',
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/webcoach/roadmaps
+ * ロードマップ一覧を取得
+ */
+app.get('/api/webcoach/roadmaps', requireAuth, async (req, res) => {
+  try {
+    const { category, difficulty, limit, offset } = req.query;
+
+    const response = await axios.get(
+      `${API_SERVER_URL}/api/rodmaps`,
+      {
+        params: {
+          category,
+          difficulty,
+          limit: limit || 20,
+          offset: offset || 0
+        },
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('[WebCoach Roadmaps] Error:', error.message);
+
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+
+    res.status(500).json({
+      error: 'Failed to get roadmaps',
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/webcoach/roadmap/:roadmapid
+ * 特定ロードマップ詳細を取得
+ */
+app.get('/api/webcoach/roadmap/:roadmapid', requireAuth, async (req, res) => {
+  try {
+    const { roadmapid } = req.params;
+
+    const response = await axios.get(
+      `${API_SERVER_URL}/api/rodmaps/${roadmapid}`,
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('[WebCoach Roadmap Detail] Error:', error.message);
+
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+
+    res.status(500).json({
+      error: 'Failed to get roadmap detail',
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/webcoach/ai
+ * AIチャット
+ */
+app.post('/api/webcoach/ai', requireAuth, async (req, res) => {
+  try {
+    const chatRequest = req.body;
+
+    const response = await axios.post(
+      `${API_SERVER_URL}/api/ai`,
+      chatRequest,
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000 // AIレスポンスは時間がかかる可能性があるため30秒
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('[WebCoach AI] Error:', error.message);
+
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+
+    res.status(500).json({
+      error: 'Failed to process AI request',
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/webcoach/updatedb
+ * WebCoach用のカスタムテーブルを一括更新
+ * CSVデータをパースしてFastAPIに転送
+ */
+app.post('/api/webcoach/updatedb', requireAuth, async (req, res) => {
+  try {
+    const { data_type, records } = req.body;
+
+    if (!data_type || !records) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        detail: 'data_type and records are required'
+      });
+    }
+
+    if (!Array.isArray(records)) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        detail: 'records must be an array'
+      });
+    }
+
+    console.log(`[WebCoach UpdateDB] Type: ${data_type}, Records: ${records.length}`);
+
+    // FastAPIにリクエストを転送
+    const response = await axios.post(
+      `${API_SERVER_URL}/api/updatedb`,
+      {
+        data_type: data_type,
+        records: records
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 60000 // 60秒タイムアウト（大量データの処理に対応）
+      }
+    );
+
+    console.log(`[WebCoach UpdateDB] Success: ${response.data.recordsProcessed} processed`);
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('[WebCoach UpdateDB] Error:', error.message);
+
+    if (error.response) {
+      // FastAPIからのエラーレスポンス
+      return res.status(error.response.status).json(error.response.data);
+    }
+
+    res.status(500).json({
+      error: 'Failed to update database',
+      detail: error.message
+    });
+  }
+});
+
 // ==================== HELPER FUNCTIONS ====================
 
 async function callMoodleAPI(token, wsfunction, params = {}) {
@@ -557,32 +924,13 @@ app.use((req, res) => {
 
 // Start server
 if (require.main === module) {
-  // SSL certificate paths
-  const sslKeyPath = path.join(__dirname, '../ssl/key.pem');
-  const sslCertPath = path.join(__dirname, '../ssl/cert.pem');
-
-  // Check if SSL certificates exist
-  if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
-    const httpsOptions = {
-      key: fs.readFileSync(sslKeyPath),
-      cert: fs.readFileSync(sslCertPath)
-    };
-
-    https.createServer(httpsOptions, app).listen(PORT, () => {
-      console.log(`BFF Server running on HTTPS port ${PORT}`);
-      console.log(`Environment: ${NODE_ENV}`);
-      console.log(`Moodle URL: ${MOODLE_URL}`);
-      console.log(`API Server URL: ${API_SERVER_URL}`);
-    });
-  } else {
-    console.warn('SSL certificates not found, falling back to HTTP');
-    app.listen(PORT, () => {
-      console.log(`BFF Server running on HTTP port ${PORT}`);
-      console.log(`Environment: ${NODE_ENV}`);
-      console.log(`Moodle URL: ${MOODLE_URL}`);
-      console.log(`API Server URL: ${API_SERVER_URL}`);
-    });
-  }
+  app.listen(PORT, () => {
+    console.log(`BFF Server running on port ${PORT}`);
+    console.log(`Environment: ${NODE_ENV}`);
+    console.log(`Moodle URL: ${MOODLE_URL}`);
+    console.log(`API Server URL: ${API_SERVER_URL}`);
+  });
 }
 
 module.exports = app;
+

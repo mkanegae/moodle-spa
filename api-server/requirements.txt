@@ -1,0 +1,17 @@
+# FastAPI and dependencies
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Database
+pymysql==1.1.0
+sqlalchemy==2.0.25
+cryptography==42.0.0
+
+# CORS and middleware
+python-multipart==0.0.6
+python-dotenv==1.0.0
+
+# HTTP client (for Moodle API calls if needed)
+httpx==0.26.0
