@@ -16,6 +16,7 @@ import { CourseProgress } from '../../types/dashboard';
 import { COLORS, SPACING, SHADOWS } from '../../theme';
 import { formatDate, getRelativeTime } from '../../utils';
 import { getProgressColor } from '../../theme/colors';
+import { CourseImage } from './CourseImage';
 
 type CourseData = (Course & {
   progress?: number;
@@ -40,14 +41,14 @@ interface CourseCardProps {
  * Unified CourseCard component
  * Consolidates 4 different implementations into one reusable component
  */
-const CourseCard: React.FC<CourseCardProps> = ({
+function CourseCard({
   course,
   variant = 'default',
   onClick,
   onViewContent,
   showProgress = false,
   showAction = true,
-}) => {
+}: CourseCardProps) {
   const progress = course.progress || 0;
   const instructor = course.instructor || course.categoryname || '講師未設定';
 
@@ -141,8 +142,27 @@ const CourseCard: React.FC<CourseCardProps> = ({
             paddingTop: '56.25%', // 16:9 aspect ratio
             backgroundColor: COLORS.lightBg,
             backgroundImage: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            overflow: 'hidden',
           }}
         >
+          {'overviewfiles' in course && course.overviewfiles?.[0]?.fileurl && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+              }}
+            >
+              <CourseImage
+                imageUrl={course.overviewfiles[0].fileurl}
+                alt={course.fullname}
+                fallbackColor="#667eea"
+                className="w-full h-full"
+              />
+            </Box>
+          )}
           <IconButton
             sx={{
               position: 'absolute',

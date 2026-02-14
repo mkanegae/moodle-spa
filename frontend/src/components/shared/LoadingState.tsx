@@ -13,12 +13,12 @@ interface LoadingStateProps {
  * Centralized loading state component
  * Replaces 4+ duplicated implementations across the codebase
  */
-const LoadingState: React.FC<LoadingStateProps> = ({
+function LoadingState({
   message = '読み込み中...',
   size = 60,
   fullHeight = false,
   containerized = true,
-}) => {
+}: LoadingStateProps) {
   const content = (
     <Box
       sx={{

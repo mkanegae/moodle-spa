@@ -24,7 +24,7 @@ import {
   VisibilityOff,
   SmartToy
 } from '@mui/icons-material';
-import { bffAPI } from '../services/bffApi';
+import { bffClient } from '../services/bffClient';
 import { Course } from '../types/course';
 import { Activity, Section } from '../types/content';
 import WebCoachHeader from './WebCoachHeader';
@@ -37,7 +37,7 @@ interface ContentListPageProps {
   onBack: () => void;
 }
 
-const ContentListPage: React.FC<ContentListPageProps> = ({ onBack }) => {
+function ContentListPage({ onBack }: ContentListPageProps) {
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [sections, setSections] = useState<Section[]>([]);
@@ -81,7 +81,7 @@ const ContentListPage: React.FC<ContentListPageProps> = ({ onBack }) => {
     try {
       setLoading(true);
       setError(null);
-      const coursesData = await bffAPI.getCourses();
+      const coursesData = await bffClient.getCourses();
       setCourses(coursesData);
     } catch (err) {
       console.error('Error fetching courses:', err);
@@ -98,7 +98,7 @@ const ContentListPage: React.FC<ContentListPageProps> = ({ onBack }) => {
       setSelectedCourse(course);
 
       // Fetch real course content from Moodle API
-      const courseContentData = await bffAPI.getCourseContent(course.id);
+      const courseContentData = await bffClient.getCourseContent(course.id);
 
       // Transform the API response to match our Section type
       const sectionsData: Section[] = Array.isArray(courseContentData)
@@ -241,7 +241,7 @@ const ContentListPage: React.FC<ContentListPageProps> = ({ onBack }) => {
       if (attachedFiles.length > 0) {
         for (const file of attachedFiles) {
           try {
-            const uploadResult = await bffAPI.uploadFile(file, selectedCourse.id);
+            const uploadResult = await bffClient.uploadFile(file, selectedCourse.id);
             uploadedFiles.push(uploadResult);
           } catch (uploadError) {
             console.warn('Failed to upload file:', file.name, uploadError);
@@ -249,24 +249,15 @@ const ContentListPage: React.FC<ContentListPageProps> = ({ onBack }) => {
         }
       }
 
-      // Create the activity/resource
-      const activityData: any = {
+      // Create the activity/resource (CreateActivityRequest型に準拠)
+      const activityData = {
+        modulename: newContent.type === 'resource' ? 'resource' : newContent.type,
         name: newContent.title,
         intro: newContent.content,
-        introformat: 1,
         section: 0,
-        visible: 1
       };
 
-      if (uploadedFiles.length > 0) {
-        activityData.files = uploadedFiles;
-      }
-
-      await bffAPI.createActivity(
-        selectedCourse.id,
-        newContent.type === 'resource' ? 'resource' : newContent.type,
-        activityData
-      );
+      await bffClient.createActivity(selectedCourse.id, activityData);
 
       setSuccess(`Content "${newContent.title}" added successfully!`);
       handleCloseModal();

@@ -26,7 +26,7 @@ const pageTransition = {
   duration: 0.4,
 };
 
-const AnimatedPage: React.FC<AnimatedPageProps> = ({ children }) => {
+function AnimatedPage({ children }: AnimatedPageProps) {
   return (
     <motion.div
       initial="initial"
@@ -39,6 +39,6 @@ const AnimatedPage: React.FC<AnimatedPageProps> = ({ children }) => {
       {children}
     </motion.div>
   );
-};
+}
 
 export default AnimatedPage;

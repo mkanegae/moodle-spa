@@ -27,7 +27,7 @@ interface CareerPathPageProps {
   onBack: () => void;
 }
 
-const CareerPathPage: React.FC<CareerPathPageProps> = ({ careerPath, onBack }) => {
+function CareerPathPage({ careerPath, onBack }: CareerPathPageProps) {
   const [activeStep, setActiveStep] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
 

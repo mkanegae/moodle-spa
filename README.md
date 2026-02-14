@@ -131,6 +131,15 @@ moodle-spa/
 │   ├── index.js            # メインサーバー
 │   ├── Dockerfile
 │   └── package.json
+├── api-server/             # FastAPI Server (Python)
+│   ├── main.py             # FastAPIアプリケーション
+│   ├── database.py         # データベース接続
+│   ├── models.py           # Pydanticモデル
+│   ├── schemas.py          # SQLAlchemyモデル
+│   ├── crud.py             # CRUD操作
+│   ├── requirements.txt    # Python依存パッケージ
+│   └── sql/                # SQLスクリプト
+│       └── create_tables.sql
 ├── docker-compose.yml      # Docker設定
 ├── .env.example            # 環境変数サンプル
 └── README.md               # このファイル
@@ -143,6 +152,8 @@ moodle-spa/
 - AIコンテンツチャット (ChromaDB統合)
 - コンテンツ登録・管理
 - **CSV一括登録** (カテゴリ、コース、ユーザー)
+- **ユーザートラッキング** (最終アクセスコース、アクセス履歴)
+- **プロフィール設定管理** (テーマ、言語、通知設定など)
 - キャリアパス機能
 - Markdown & 動画表示
 - 数式表示 (KaTeX)
@@ -256,6 +267,74 @@ Moodleバージョン3.7以上の場合:
 1. Moodle Web Serviceが有効化されているか確認
 2. トークンが有効か確認
 3. 必要な関数が有効化されているか確認
+
+## ユーザートラッキング機能
+
+ユーザーの学習行動を追跡し、パーソナライズされた学習体験を提供します。
+
+### 機能概要
+
+1. **最終アクセスコース追跡**
+   - ユーザーごとの最後にアクセスしたコースを記録
+   - アクセス回数を自動カウント
+   - 最近アクセスしたコース一覧を表示
+
+2. **プロフィール設定管理**
+   - テーマ設定（ライト/ダーク）
+   - 言語設定（日本語/英語）
+   - 通知設定
+   - タイムゾーン設定
+   - カスタム設定（JSON形式で拡張可能）
+
+### セットアップ
+
+詳細なセットアップ手順は `USER_TRACKING_IMPLEMENTATION_GUIDE.md` を参照してください。
+
+#### 1. データベーステーブルの作成
+
+```bash
+mysql -h <MOODLE_DB_HOST> -u <MOODLE_DB_USER> -p <MOODLE_DB_NAME> < api-server/sql/create_tables.sql
+```
+
+#### 2. FastAPIサーバーのセットアップ
+
+```bash
+cd api-server
+cp .env.example .env
+# .envファイルを編集してMoodleデータベースの接続情報を設定
+
+pip install -r requirements.txt
+python main.py
+```
+
+#### 3. API利用例
+
+**コースアクセスを記録:**
+```bash
+curl -X POST http://localhost:3001/api/user-tracking/course-access \
+  -H "Content-Type: application/json" \
+  -d '{"courseid": 123}' \
+  --cookie "sessionId=your_session_id"
+```
+
+**最終アクセスコース一覧を取得:**
+```bash
+curl http://localhost:3001/api/user-tracking/last-courses?limit=10 \
+  --cookie "sessionId=your_session_id"
+```
+
+**プロフィール設定を取得:**
+```bash
+curl http://localhost:3001/api/profile-settings?auto_create=true \
+  --cookie "sessionId=your_session_id"
+```
+
+### データベーステーブル
+
+- `mdl_user_last_course_access` - ユーザーの最終アクセスコース履歴
+- `mdl_user_profile_settings` - ユーザープロフィール設定
+
+詳細なテーブル定義は `api-server/sql/create_tables.sql` を参照してください。
 
 ## ライセンス
 

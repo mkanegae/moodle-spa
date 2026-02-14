@@ -1,27 +1,28 @@
 import React from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import LoginPage from '../components/LoginPage';
+import PasswordResetPage from '../components/PasswordResetPage';
 import HomePage from '../components/HomePage';
-import MyLearningPage from '../components/MyLearningPage';
+import MyPage from '../components/MyPage';
+import ProfilePage from '../components/ProfilePage';
 import WebCoachDashboard from '../components/WebCoachDashboard';
 import CareerPathPage from '../components/CareerPathPage';
-import SkillDetailPage from '../components/SkillDetailPage';
 import CoursesPage from '../components/CoursesPage';
-import ContentRegistrationPage from '../components/ContentRegistrationPage';
+import QuestsPage from '../components/QuestsPage';
+import BadgesPage from '../components/BadgesPage';
 import ContentListPage from '../components/ContentListPage';
-import ModernContentListPage from '../components/ModernContentListPage';
-import ModernContentCreator from '../components/ModernContentCreator';
 import CourseContentPage from '../components/CourseContentPage';
+import CourseStartPage from '../components/CourseStartPage';
 import AnimatedPage from '../components/AnimatedPage';
+import { AdminPage } from '../components/AdminPage';
 import { useAuthStore } from '../store/authStore';
-import { useCategoryStore } from '../store/categoryStore';
 import { useNavigationStore } from '../store/navigationStore';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
+function ProtectedRoute({ children }: ProtectedRouteProps) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   if (!isAuthenticated) {
@@ -29,14 +30,13 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   }
 
   return <AnimatedPage>{children}</AnimatedPage>;
-};
+}
 
 // Wrapper components to handle routing params
-const WebCoachWrapper: React.FC = () => {
+function WebCoachWrapper() {
   const navigate = useNavigate();
   const logout = useAuthStore((state) => state.logout);
   const setSelectedCareerPath = useNavigationStore((state) => state.setSelectedCareerPath);
-  const setSelectedSkillId = useNavigationStore((state) => state.setSelectedSkillId);
 
   return (
     <WebCoachDashboard
@@ -48,15 +48,14 @@ const WebCoachWrapper: React.FC = () => {
         setSelectedCareerPath(path);
         navigate(`/career-path/${path}`);
       }}
-      onNavigateToSkill={(skillId: number) => {
-        setSelectedSkillId(skillId);
-        navigate(`/skill/${skillId}`);
+      onNavigateToSkill={() => {
+        // Skill detail page removed
       }}
     />
   );
-};
+}
 
-const CareerPathWrapper: React.FC = () => {
+function CareerPathWrapper() {
   const navigate = useNavigate();
   const { pathId } = useParams<{ pathId: string }>();
 
@@ -66,65 +65,18 @@ const CareerPathWrapper: React.FC = () => {
       onBack={() => navigate('/webcoach')}
     />
   );
-};
+}
 
-const SkillDetailWrapper: React.FC = () => {
-  const navigate = useNavigate();
-  const { skillId } = useParams<{ skillId: string }>();
+function CoursesWrapper() {
+  return <CoursesPage />;
+}
 
-  return (
-    <SkillDetailPage
-      skillId={parseInt(skillId || '1', 10)}
-      onBack={() => navigate('/webcoach')}
-    />
-  );
-};
-
-const CoursesWrapper: React.FC = () => {
-  const navigate = useNavigate();
-  const logout = useAuthStore((state) => state.logout);
-
-  return (
-    <CoursesPage
-      onLogout={() => {
-        logout();
-        navigate('/login');
-      }}
-      onNavigateToContentRegistration={() => navigate('/content-registration')}
-      onNavigateToContentList={() => navigate('/content-list')}
-      onNavigateToModernCreator={() => navigate('/modern-creator')}
-    />
-  );
-};
-
-const ContentRegistrationWrapper: React.FC = () => {
-  const navigate = useNavigate();
-  return <ContentRegistrationPage onBack={() => navigate('/webcoach')} />;
-};
-
-const ContentListWrapper: React.FC = () => {
-  const navigate = useNavigate();
-  return (
-    <ModernContentListPage
-      onBack={() => navigate('/webcoach')}
-      onCourseSelect={(course) => navigate(`/course/${course.id}`)}
-    />
-  );
-};
-
-// Old content list page (with full functionality)
-const OldContentListWrapper: React.FC = () => {
+function ContentListWrapper() {
   const navigate = useNavigate();
   return <ContentListPage onBack={() => navigate('/webcoach')} />;
-};
+}
 
-const ModernContentCreatorWrapper: React.FC = () => {
-  const navigate = useNavigate();
-  const categories = useCategoryStore((state) => state.categories);
-  return <ModernContentCreator onBack={() => navigate('/webcoach')} categories={categories} />;
-};
-
-const HomePageWrapper: React.FC = () => {
+function HomePageWrapper() {
   const navigate = useNavigate();
   const logout = useAuthStore((state) => state.logout);
 
@@ -136,35 +88,43 @@ const HomePageWrapper: React.FC = () => {
       }}
     />
   );
-};
+}
 
-const MyLearningWrapper: React.FC = () => {
-  const navigate = useNavigate();
-  const logout = useAuthStore((state) => state.logout);
+function MyPageWrapper() {
+  return <MyPage />;
+}
 
-  return (
-    <MyLearningPage
-      onLogout={() => {
-        logout();
-        navigate('/login');
-      }}
-    />
-  );
-};
+function ProfilePageWrapper() {
+  return <ProfilePage />;
+}
 
-const CourseContentWrapper: React.FC = () => {
+function CourseStartWrapper() {
+  return <CourseStartPage />;
+}
+
+function CourseContentWrapper() {
   const navigate = useNavigate();
   const { courseId } = useParams<{ courseId: string }>();
 
   return (
     <CourseContentPage
       courseId={parseInt(courseId || '0', 10)}
-      onBack={() => navigate('/my-learning')}
+      onBack={() => navigate('/courses')}
     />
   );
-};
+}
 
-const AppRoutes: React.FC = () => {
+function QuestsPageWrapper() {
+  // QuestsPage doesn't need any props for now, using mock data
+  return <QuestsPage />;
+}
+
+function BadgesPageWrapper() {
+  // BadgesPage doesn't need any props for now, using mock data
+  return <BadgesPage />;
+}
+
+function AppRoutes() {
   return (
     <Routes>
       <Route
@@ -177,19 +137,37 @@ const AppRoutes: React.FC = () => {
       />
 
       <Route
-        path="/home"
+        path="/password-reset"
+        element={
+          <AnimatedPage>
+            <PasswordResetPage />
+          </AnimatedPage>
+        }
+      />
+
+      <Route
+        path="/mypage"
         element={
           <ProtectedRoute>
-            <HomePageWrapper />
+            <MyPageWrapper />
           </ProtectedRoute>
         }
       />
 
       <Route
-        path="/my-learning"
+        path="/profile"
         element={
           <ProtectedRoute>
-            <MyLearningWrapper />
+            <ProfilePageWrapper />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/home"
+        element={
+          <ProtectedRoute>
+            <HomePageWrapper />
           </ProtectedRoute>
         }
       />
@@ -213,28 +191,10 @@ const AppRoutes: React.FC = () => {
       />
 
       <Route
-        path="/skill/:skillId"
-        element={
-          <ProtectedRoute>
-            <SkillDetailWrapper />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
         path="/courses"
         element={
           <ProtectedRoute>
             <CoursesWrapper />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/content-registration"
-        element={
-          <ProtectedRoute>
-            <ContentRegistrationWrapper />
           </ProtectedRoute>
         }
       />
@@ -249,19 +209,10 @@ const AppRoutes: React.FC = () => {
       />
 
       <Route
-        path="/content-list-old"
+        path="/course/:courseId/start"
         element={
           <ProtectedRoute>
-            <OldContentListWrapper />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/modern-creator"
-        element={
-          <ProtectedRoute>
-            <ModernContentCreatorWrapper />
+            <CourseStartWrapper />
           </ProtectedRoute>
         }
       />
@@ -275,8 +226,35 @@ const AppRoutes: React.FC = () => {
         }
       />
 
-      <Route path="/" element={<Navigate to="/home" replace />} />
-      <Route path="*" element={<Navigate to="/home" replace />} />
+      <Route
+        path="/quests"
+        element={
+          <ProtectedRoute>
+            <QuestsPageWrapper />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/badges"
+        element={
+          <ProtectedRoute>
+            <BadgesPageWrapper />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute>
+            <AdminPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );
 };

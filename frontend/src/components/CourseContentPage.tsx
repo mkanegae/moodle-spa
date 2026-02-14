@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { bffAPI } from '../services/bffApi';
+import { bffClient } from '../services/bffClient';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
@@ -49,7 +49,7 @@ interface ModuleContent {
   content?: string;
 }
 
-const CourseContentPage: React.FC<CourseContentPageProps> = ({ courseId, onBack }) => {
+function CourseContentPage({ courseId, onBack }: CourseContentPageProps) {
   const [sections, setSections] = useState<Section[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +92,7 @@ const CourseContentPage: React.FC<CourseContentPageProps> = ({ courseId, onBack 
       setLoading(true);
       setError(null);
 
-      const content = await bffAPI.getCourseContent(courseId);
+      const content = await bffClient.getCourseContent(courseId);
 
       if (Array.isArray(content)) {
         setSections(content);
@@ -104,14 +104,14 @@ const CourseContentPage: React.FC<CourseContentPageProps> = ({ courseId, onBack 
         }
       }
 
-      const courses = await bffAPI.getCourses();
+      const courses = await bffClient.getCourses();
       const course = courses.find(c => c.id === courseId);
       if (course) {
         setCourseName(course.fullname);
       }
 
       // TODO: BFF APIにgetResourceHtmlContentsエンドポイントを追加する必要があります
-      // const htmlData = await bffAPI.getResourceHtmlContents(courseId);
+      // const htmlData = await bffClient.getResourceHtmlContents(courseId);
       // setHtmlContents(htmlData);
       setHtmlContents([]);
     } catch (error: any) {
@@ -188,7 +188,7 @@ const CourseContentPage: React.FC<CourseContentPageProps> = ({ courseId, onBack 
   const fetchMarkdownContent = async (fileUrl: string): Promise<string> => {
     try {
       // TODO: BFF APIにfetchMarkdownFileエンドポイントを追加する必要があります
-      // return await bffAPI.fetchMarkdownFile(fileUrl);
+      // return await bffClient.fetchMarkdownFile(fileUrl);
       return 'Markdownファイルの表示は現在準備中です。';
     } catch (error) {
       console.error('Error fetching markdown:', error);
@@ -201,7 +201,7 @@ const CourseContentPage: React.FC<CourseContentPageProps> = ({ courseId, onBack 
     const videoFile = module.contents.find(c => isVideoFile(c.filename));
     if (!videoFile) return null;
     // TODO: BFF APIにaddTokenToFileUrlエンドポイントを追加する必要があります
-    // return bffAPI.addTokenToFileUrl(videoFile.fileurl);
+    // return bffClient.addTokenToFileUrl(videoFile.fileurl);
     return videoFile.fileurl;
   };
 

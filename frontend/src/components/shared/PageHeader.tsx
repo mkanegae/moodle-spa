@@ -17,7 +17,7 @@ interface PageHeaderProps {
  * Centralized page header component
  * Replaces multiple navigation bar implementations
  */
-const PageHeader: React.FC<PageHeaderProps> = ({
+function PageHeader({
   title,
   onBack,
   onHome,
@@ -25,7 +25,7 @@ const PageHeader: React.FC<PageHeaderProps> = ({
   backgroundColor,
   textColor,
   variant = 'light',
-}) => {
+}: PageHeaderProps) {
   // Determine colors based on variant
   const getColors = () => {
     if (backgroundColor && textColor) {

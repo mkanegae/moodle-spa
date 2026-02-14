@@ -15,13 +15,13 @@ interface ErrorStateProps {
  * Centralized error state component
  * Replaces 4+ duplicated implementations across the codebase
  */
-const ErrorState: React.FC<ErrorStateProps> = ({
+function ErrorState({
   error,
   onRetry,
   fullHeight = false,
   containerized = true,
   severity = 'error',
-}) => {
+}: ErrorStateProps) {
   const content = (
     <Box
       sx={{

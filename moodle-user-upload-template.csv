@@ -1,6 +1,3 @@
-username,password,firstname,lastname,email,city,country,lang,auth,idnumber,institution,department,phone1,profile_field_employeeid
-yamada.taro,Password123!,太郎,山田,yamada.taro@example.com,東京,JP,ja,manual,USR001,株式会社サンプル,開発部,03-1234-5678,EMP001
-tanaka.hanako,Password123!,花子,田中,tanaka.hanako@example.com,大阪,JP,ja,manual,USR002,株式会社サンプル,営業部,06-2345-6789,EMP002
-suzuki.ichiro,Password123!,一郎,鈴木,suzuki.ichiro@example.com,名古屋,JP,ja,manual,USR003,株式会社サンプル,人事部,052-3456-7890,EMP003
-sato.yuki,Password123!,由紀,佐藤,sato.yuki@example.com,福岡,JP,ja,manual,USR004,株式会社サンプル,開発部,092-4567-8901,EMP004
-watanabe.kenji,Password123!,健二,渡辺,watanabe.kenji@example.com,札幌,JP,ja,manual,USR005,株式会社サンプル,マーケティング部,011-5678-9012,EMP005
+username,password,firstname,lastname,email,city,country,lang,auth,idnumber,institution,department,phone1
+test,Test123!,test,user,kanegaemasaki@gmail.com,,,,,,,,
+apiuser,api123!,api,user,api@example.com,,,,,,,,

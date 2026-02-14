@@ -14,7 +14,7 @@ interface MarkdownRendererProps {
   className?: string;
 }
 
-const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className }) => {
+function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
   // カスタムコンポーネントの定義
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const components: Partial<Components> = {

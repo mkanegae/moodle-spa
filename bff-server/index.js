@@ -206,12 +206,23 @@ app.post('/api/login', async (req, res) => {
 
     const { token } = response.data;
 
+    // Get user info to save userid in session
+    let userInfo;
+    try {
+      userInfo = await callMoodleAPI(token, 'core_webservice_get_site_info');
+      console.log('User info retrieved:', { userid: userInfo.userid, username: userInfo.username });
+    } catch (error) {
+      console.error('Failed to get user info:', error.message);
+      return res.status(500).json({ error: 'Failed to retrieve user information' });
+    }
+
     // Save to session (server-side only)
     req.session.moodleToken = token;
     req.session.username = username;
+    req.session.userId = userInfo.userid;
 
     console.log('=== Session Created on Login ===');
-    console.log('Login successful:', { username });
+    console.log('Login successful:', { username, userId: userInfo.userid });
     console.log('Session ID:', req.sessionID);
     console.log('Saving session explicitly...');
 
@@ -228,6 +239,7 @@ app.post('/api/login', async (req, res) => {
       res.json({
         success: true,
         username: username,
+        userId: userInfo.userid,
         message: 'ログインに成功しました'
       });
     });
@@ -642,6 +654,40 @@ app.post('/api/webcoach/updateprofile/:userid', requireAuth, async (req, res) =>
 
     res.status(500).json({
       error: 'Failed to update profile',
+      detail: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/v1/profile/
+ * プロフィール情報を保存（v1 API）
+ */
+app.post('/api/v1/profile/', requireAuth, async (req, res) => {
+  try {
+    const profileData = req.body;
+
+    const response = await axios.post(
+      `${API_SERVER_URL}/api/v1/profile/`,
+      profileData,
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('[Profile Save v1] Error:', error.message);
+
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+
+    res.status(500).json({
+      error: 'Failed to save profile',
       detail: error.message
     });
   }

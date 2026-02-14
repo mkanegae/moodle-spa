@@ -16,7 +16,7 @@ import {
   Close,
   Source,
 } from '@mui/icons-material';
-import { bffAPI } from '../services/bffApi';
+import { bffClient } from '../services/bffClient';
 
 interface Message {
   id: string;
@@ -40,13 +40,13 @@ interface AIContentChatProps {
   onClose: () => void;
 }
 
-const AIContentChat: React.FC<AIContentChatProps> = ({
+function AIContentChat({
   contentId,
   contentTitle,
   contentHtml,
   courseId,
   onClose,
-}) => {
+}: AIContentChatProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -83,19 +83,28 @@ const AIContentChat: React.FC<AIContentChatProps> = ({
     setLoading(true);
 
     try {
-      // RAG機能を使用してAIレスポンスを取得
-      const result = await bffAPI.summarizeContent(
-        courseId,
-        contentTitle,
-        currentInput
-      );
+      // WebCoach AI APIを使用してレスポンスを取得
+      const result = await bffClient.sendAIMessage({
+        message: currentInput,
+        course_id: courseId,
+        context: {
+          contentTitle,
+          contentHtml
+        }
+      });
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: result.summary,
+        content: result.message || '回答を取得できませんでした',
         timestamp: new Date(),
-        sources: result.sources,
+        sources: (result.sources || []).map(s => ({
+          chunk_index: s.chunk_index || 0,
+          module_name: s.module_name || '',
+          filename: s.filename || '',
+          section_name: s.section_name || '',
+          similarity: s.similarity || 0
+        })),
       };
 
       setMessages((prev) => [...prev, assistantMessage]);

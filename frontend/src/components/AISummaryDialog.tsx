@@ -16,7 +16,7 @@ import {
 } from '@mui/material';
 import { Close, SmartToy, Source } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
-import { bffAPI } from '../services/bffApi';
+import { bffClient } from '../services/bffClient';
 
 interface AISummaryDialogProps {
   open: boolean;
@@ -37,12 +37,12 @@ interface SummaryResult {
   mode: string;
 }
 
-const AISummaryDialog: React.FC<AISummaryDialogProps> = ({
+function AISummaryDialog({
   open,
   onClose,
   courseId,
   moduleName,
-}) => {
+}: AISummaryDialogProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<SummaryResult | null>(null);
@@ -55,13 +55,30 @@ const AISummaryDialog: React.FC<AISummaryDialogProps> = ({
     setSummary(null);
 
     try {
-      const result = await bffAPI.summarizeContent(
-        courseId,
-        moduleName,
-        mode === 'qa' ? query : undefined
-      );
+      const message = mode === 'qa'
+        ? query
+        : `「${moduleName || 'このコース'}」の内容を要約してください`;
 
-      setSummary(result);
+      const result = await bffClient.sendAIMessage({
+        message,
+        course_id: courseId,
+        context: {
+          moduleName,
+          mode
+        }
+      });
+
+      setSummary({
+        summary: result.message || '回答を取得できませんでした',
+        sources: (result.sources || []).map(s => ({
+          chunk_index: s.chunk_index || 0,
+          module_name: s.module_name || '',
+          filename: s.filename || '',
+          section_name: s.section_name || '',
+          similarity: s.similarity || 0
+        })),
+        mode: mode
+      });
     } catch (err: any) {
       setError(err.message || 'AI要約の生成に失敗しました');
     } finally {

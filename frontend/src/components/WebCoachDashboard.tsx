@@ -38,11 +38,11 @@ interface WebCoachDashboardProps {
   onNavigateToSkill: (skillId: number) => void;
 }
 
-const WebCoachDashboard: React.FC<WebCoachDashboardProps> = ({
+function WebCoachDashboard({
   onLogout,
   onNavigateToCareerPath,
   onNavigateToSkill,
-}) => {
+}: WebCoachDashboardProps) {
   const [newsIndex, setNewsIndex] = useState(0);
 
   // ニュースデータ（サンプル）

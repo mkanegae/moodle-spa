@@ -29,7 +29,7 @@ interface HomePageProps {
   onLogout: () => void;
 }
 
-const HomePage: React.FC<HomePageProps> = ({ onLogout }) => {
+function HomePage({ onLogout }: HomePageProps) {
   const navigate = useNavigate();
 
   // ロードマップ全体の進捗データ
@@ -345,10 +345,10 @@ const HomePage: React.FC<HomePageProps> = ({ onLogout }) => {
                   flexDirection: 'column',
                   gap: 1,
                 }}
-                onClick={() => navigate('/my-learning')}
+                onClick={() => navigate('/courses')}
               >
                 <SchoolIcon fontSize="large" />
-                <Typography variant="caption">マイラーニング</Typography>
+                <Typography variant="caption">コース</Typography>
               </Button>
               <Button
                 variant="outlined"

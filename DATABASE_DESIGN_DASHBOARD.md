@@ -1,3 +1,44 @@
+ 1. mdl_user_last_course_access (最終アクセスコース管理)
+
+  | カラム名         | データ型   | 説明                       |
+  |--------------|--------|--------------------------|
+  | id           | BIGINT | 主キー                      |
+  | userid       | BIGINT | MoodleユーザーID             |
+  | courseid     | BIGINT | MoodleコースID              |
+  | lastaccess   | BIGINT | 最終アクセス時刻（UNIX timestamp） |
+  | accesscount  | INT    | アクセス回数                   |
+  | timemodified | BIGINT | 更新時刻                     |
+  | timecreated  | BIGINT | 作成時刻                     |
+
+  特徴:
+  - UNIQUE(userid, courseid) - 1ユーザー1コースに1レコード
+  - アクセスごとにlastaccessとaccesscountを自動更新
+  - 日付順・頻度順での検索に最適化されたインデックス
+
+  2. mdl_user_profile_settings (プロフィール設定)
+
+  | カラム名                  | データ型        | 説明                 |
+  |-----------------------|-------------|--------------------|
+  | id                    | BIGINT      | 主キー                |
+  | userid                | BIGINT      | MoodleユーザーID（ユニーク） |
+  | theme                 | VARCHAR(20) | テーマ（light/dark）    |
+  | language              | VARCHAR(10) | 言語（ja/en）          |
+  | notifications_enabled | TINYINT(1)  | 通知有効化              |
+  | email_notifications   | TINYINT(1)  | メール通知              |
+  | timezone              | VARCHAR(50) | タイムゾーン             |
+  | items_per_page        | INT         | 表示件数               |
+  | avatar_url            | TEXT        | アバターURL            |
+  | bio                   | TEXT        | 自己紹介               |
+  | preferences           | JSON        | カスタム設定             |
+  | timemodified          | BIGINT      | 更新時刻               |
+  | timecreated           | BIGINT      | 作成時刻               |
+
+
+
+
+
+
+
 # 学習ダッシュボード データベース設計
 
 ## 目次
