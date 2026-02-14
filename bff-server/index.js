@@ -6,16 +6,64 @@ const axios = require('axios');
 const FormData = require('form-data');
 const multer = require('multer');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+const swaggerUi = require('swagger-ui-express');
+const YAML = require('yamljs');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Load Swagger documentation
+const swaggerDocument = YAML.load('./swagger.yaml');
 
 // Environment variables
 const MOODLE_URL = process.env.MOODLE_URL || 'http://localhost';
 const API_SERVER_URL = process.env.API_SERVER_URL || 'http://localhost:8001';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'change-me-in-production';
 const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// Moodle Service Account credentials
+const MOODLE_SERVICE_USERNAME = process.env.MOODLE_SERVICE_USERNAME;
+const MOODLE_SERVICE_PASSWORD = process.env.MOODLE_SERVICE_PASSWORD;
+const MOODLE_SERVICE_NAME = process.env.MOODLE_SERVICE_NAME || 'moodle_mobile_app';
+
+// Global service account token (used for all Moodle API calls)
+let serviceAccountToken = null;
+
+// Environment validation
+function validateEnvironment() {
+  console.log('=== Environment Validation ===');
+
+  const required = [
+    'MOODLE_URL',
+    'API_SERVER_URL',
+    'MOODLE_SERVICE_USERNAME',
+    'MOODLE_SERVICE_PASSWORD',
+    'SESSION_SECRET'
+  ];
+
+  const missing = required.filter(key => !process.env[key]);
+
+  if (missing.length > 0) {
+    console.error(`❌ Missing required environment variables: ${missing.join(', ')}`);
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+
+  // SESSION_SECRETがデフォルト値でないかチェック
+  if (NODE_ENV === 'production' && process.env.SESSION_SECRET === 'change-me-in-production') {
+    console.error('❌ SESSION_SECRET must be changed in production');
+    throw new Error('SESSION_SECRET must be changed in production environment');
+  }
+
+  console.log('✅ All required environment variables are set');
+  console.log('   MOODLE_URL:', MOODLE_URL);
+  console.log('   API_SERVER_URL:', API_SERVER_URL);
+  console.log('   MOODLE_SERVICE_USERNAME:', MOODLE_SERVICE_USERNAME);
+  console.log('   MOODLE_SERVICE_NAME:', MOODLE_SERVICE_NAME);
+  console.log('   NODE_ENV:', NODE_ENV);
+}
+
+// Validate environment on startup
+validateEnvironment();
 
 // Middleware
 app.use(helmet({
@@ -32,7 +80,8 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // Trust proxy - required for secure cookies behind reverse proxy
-app.set('trust proxy', 1);
+// Trust all proxies (nginx, CloudFront, etc.)
+app.set('trust proxy', true);
 
 app.use(express.json({
   verify: (req, res, buf, encoding) => {
@@ -58,10 +107,11 @@ const sessionConfig = {
   name: 'sessionId',
   cookie: {
     httpOnly: true, // Prevent client-side access for security
-    secure: NODE_ENV === 'production', // HTTPS only in production
+    secure: 'auto', // Automatically detect HTTPS based on trust proxy
     sameSite: NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-origin in HTTPS
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }
+  },
+  proxy: true // Required when trust proxy is enabled
 };
 
 app.use(session(sessionConfig));
@@ -70,13 +120,17 @@ app.use(session(sessionConfig));
 app.use((req, res, next) => {
   // リクエスト受信時のCookie情報
   console.log('=== Cookie & Session Details ===');
+  console.log('Protocol:', req.protocol);
+  console.log('Secure:', req.secure);
+  console.log('X-Forwarded-Proto:', req.headers['x-forwarded-proto'] || 'Not set');
+  console.log('X-Forwarded-Host:', req.headers['x-forwarded-host'] || 'Not set');
+  console.log('Origin:', req.headers.origin || 'Not set');
   console.log('Cookie Header:', req.headers.cookie || 'No Cookie');
   console.log('Session ID:', req.sessionID || 'No Session ID');
   console.log('Session exists:', !!req.session);
 
   if (req.session) {
     console.log('Session data:', {
-      hasToken: !!req.session.moodleToken,
       userId: req.session.userId,
       username: req.session.username,
       cookie: {
@@ -102,27 +156,46 @@ app.use((req, res, next) => {
   next();
 });
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
-});
-app.use('/api/', limiter);
-
-// Request logging middleware
+// Security audit logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
+
+  // リクエスト開始時の情報
+  const auditLog = {
+    timestamp: new Date().toISOString(),
+    requestId: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    method: req.method,
+    path: req.path,
+    ip: req.ip,
+    userAgent: req.headers['user-agent'],
+    userId: req.session?.userId || null,
+    username: req.session?.username || null,
+    params: req.params,
+    query: req.query
+  };
+
+  // レスポンス完了時の情報
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log({
-      method: req.method,
-      path: req.path,
-      status: res.statusCode,
-      duration: `${duration}ms`,
-      userId: req.session.userId || 'anonymous'
-    });
+    auditLog.status = res.statusCode;
+    auditLog.duration = `${duration}ms`;
+
+    // APIリクエストのみログ出力（静的ファイルは除外）
+    if (req.path.startsWith('/api/')) {
+      console.log('[AUDIT]', JSON.stringify(auditLog));
+
+      // エラーレスポンスや認可失敗は警告レベルで出力
+      if (res.statusCode >= 400) {
+        console.warn('[AUDIT-ALERT]', JSON.stringify({
+          ...auditLog,
+          level: res.statusCode === 401 ? 'AUTHENTICATION_FAILED' :
+                 res.statusCode === 403 ? 'AUTHORIZATION_FAILED' :
+                 res.statusCode >= 500 ? 'SERVER_ERROR' : 'CLIENT_ERROR'
+        }));
+      }
+    }
   });
+
   next();
 });
 
@@ -131,9 +204,9 @@ const requireAuth = (req, res, next) => {
   console.log('=== Authentication Check ===');
   console.log('Path:', req.path);
   console.log('Has session:', !!req.session);
-  console.log('Has moodleToken:', !!req.session?.moodleToken);
+  console.log('Has userId:', !!req.session?.userId);
 
-  if (!req.session || !req.session.moodleToken) {
+  if (!req.session || !req.session.userId) {
     console.log('Authentication FAILED - Returning 401');
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -141,6 +214,73 @@ const requireAuth = (req, res, next) => {
   console.log('Authentication SUCCESS');
   next();
 };
+
+// Authorization middleware - リソースオーナーシップの確認
+const requireOwnership = (req, res, next) => {
+  const requestedUserId = req.params.userid || req.body.userid || req.query.userid;
+  const sessionUserId = req.session.userId;
+
+  console.log('=== Authorization Check ===');
+  console.log('Requested userId:', requestedUserId);
+  console.log('Session userId:', sessionUserId);
+
+  // useridパラメータがある場合、セッションのuserIdと一致するかチェック
+  if (requestedUserId) {
+    const requestedUserIdInt = parseInt(requestedUserId);
+
+    if (requestedUserIdInt !== sessionUserId) {
+      console.warn(`[SECURITY ALERT] Authorization FAILED - User ${sessionUserId} (${req.session.username}) attempted to access user ${requestedUserIdInt}'s data`);
+      console.warn(`[SECURITY ALERT] Path: ${req.method} ${req.path}`);
+      console.warn(`[SECURITY ALERT] IP: ${req.ip}`);
+
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You can only access your own data'
+      });
+    }
+  }
+
+  console.log('Authorization SUCCESS');
+  next();
+};
+
+/**
+ * Calculate course progress from activity completion status
+ * @param {number} courseid - Course ID
+ * @param {number} userid - User ID
+ * @returns {Promise<number>} Progress percentage (0-100)
+ */
+async function calculateCourseProgress(courseid, userid) {
+  try {
+    // Get activity completion status for this course
+    const completionStatus = await callMoodleAPI(
+      'core_completion_get_activities_completion_status',
+      {
+        courseid: courseid,
+        userid: userid
+      }
+    );
+
+    // Calculate progress from activities
+    let progress = 0;
+    if (completionStatus && completionStatus.statuses && Array.isArray(completionStatus.statuses)) {
+      const statuses = completionStatus.statuses;
+      const totalActivities = statuses.length;
+
+      if (totalActivities > 0) {
+        const completedActivities = statuses.filter(
+          activity => activity.state === 1 || activity.state === 2 // 1=completed, 2=completed with pass
+        ).length;
+        progress = Math.round((completedActivities / totalActivities) * 100);
+      }
+    }
+
+    return progress;
+  } catch (error) {
+    console.error(`Error calculating progress for course ${courseid}:`, error.message);
+    return 0;
+  }
+}
 
 // File upload configuration
 const upload = multer({
@@ -152,28 +292,65 @@ const upload = multer({
 
 // ==================== ROUTES ====================
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({
+// Swagger UI
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'Moodle BFF API Documentation'
+}));
+
+// Health check - 詳細版
+app.get('/health', async (req, res) => {
+  const health = {
     status: 'ok',
     timestamp: new Date().toISOString(),
     service: 'Moodle BFF',
-    environment: NODE_ENV
-  });
+    environment: NODE_ENV,
+    checks: {
+      serviceAccountToken: !!serviceAccountToken,
+      moodle: { status: 'unknown' },
+      apiServer: { status: 'unknown' }
+    }
+  };
+
+  // Moodle接続確認
+  try {
+    await callMoodleAPI('core_webservice_get_site_info');
+    health.checks.moodle = { status: 'ok' };
+  } catch (error) {
+    health.status = 'degraded';
+    health.checks.moodle = {
+      status: 'error',
+      message: error.message
+    };
+  }
+
+  // API Server接続確認
+  try {
+    await axios.get(`${API_SERVER_URL}/health`, { timeout: 3000 });
+    health.checks.apiServer = { status: 'ok' };
+  } catch (error) {
+    health.checks.apiServer = {
+      status: 'error',
+      message: error.message
+    };
+  }
+
+  const statusCode = health.status === 'ok' ? 200 : 503;
+  res.status(statusCode).json(health);
 });
 
+// シンプル版ヘルスチェック（ロードバランサー用）
 app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    service: 'Moodle BFF',
-    environment: NODE_ENV
+  const isHealthy = !!serviceAccountToken;
+  res.status(isHealthy ? 200 : 503).json({
+    status: isHealthy ? 'ok' : 'error',
+    timestamp: new Date().toISOString()
   });
 });
 
 // ==================== AUTH ROUTES ====================
 
-// Login
+// Login - ユーザー認証のみを行う（Moodle APIアクセスはサービスアカウントを使用）
 app.post('/api/login', async (req, res) => {
   try {
     console.log('=== Raw Request Debug ===');
@@ -184,45 +361,74 @@ app.post('/api/login', async (req, res) => {
     const { username, password, service = 'moodle_mobile_app' } = req.body;
 
     console.log('Login attempt:', { username, service, passwordLength: password?.length });
-    console.log('Password value:', password);
 
-    // Call Moodle login API
-    const formData = new FormData();
-    formData.append('username', username);
-    formData.append('password', password);
-    formData.append('service', service);
+    // ユーザー認証のため、一時的にユーザーのトークンを取得
+    // Use URLSearchParams for application/x-www-form-urlencoded
+    const params = new URLSearchParams();
+    params.append('username', username);
+    params.append('password', password);
+    params.append('service', service);
 
     console.log('Sending request to:', `${MOODLE_URL}/login/token.php`);
-    const response = await axios.post(`${MOODLE_URL}/login/token.php`, formData, {
-      headers: formData.getHeaders()
+    console.log('Login params:', { username, password: password?.substring(0, 3) + '***', service });
+
+    const response = await axios.post(`${MOODLE_URL}/login/token.php`, params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
     });
 
     console.log('Moodle response status:', response.status);
-    console.log('Moodle response data:', response.data);
+    console.log('Moodle response data:', JSON.stringify(response.data));
 
     if (response.data.error) {
+      console.log('Moodle login error:', response.data.error);
       return res.status(401).json({ error: response.data.error });
     }
 
-    const { token } = response.data;
-
-    // Get user info to save userid in session
+    // 認証成功 - サービスアカウントトークンを使用してユーザー情報を取得
     let userInfo;
+
     try {
-      userInfo = await callMoodleAPI(token, 'core_webservice_get_site_info');
-      console.log('User info retrieved:', { userid: userInfo.userid, username: userInfo.username });
+      if (!serviceAccountToken) {
+        console.error('Service account token not available');
+        return res.status(500).json({ error: 'Service configuration error' });
+      }
+
+      // サービスアカウントトークンでユーザー情報を取得
+      const result = await callMoodleAPI('core_user_get_users_by_field', {
+        field: 'username',
+        'values[0]': username
+      });
+
+      console.log('[DEBUG] User lookup result:', JSON.stringify(result, null, 2));
+
+      if (!result || result.length === 0) {
+        console.error('User not found:', username);
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      const userData = result[0];
+      userInfo = {
+        id: userData.id,
+        username: userData.username,
+        fullname: userData.fullname,
+        email: userData.email
+      };
+
+      console.log('[DEBUG] userInfo:', JSON.stringify(userInfo, null, 2));
+      console.log('User info retrieved:', { userid: userInfo.id, username: userInfo.username });
     } catch (error) {
       console.error('Failed to get user info:', error.message);
       return res.status(500).json({ error: 'Failed to retrieve user information' });
     }
 
-    // Save to session (server-side only)
-    req.session.moodleToken = token;
+    // セッションにユーザー情報のみを保存（トークンは保存しない）
     req.session.username = username;
-    req.session.userId = userInfo.userid;
+    req.session.userId = userInfo.id;
 
     console.log('=== Session Created on Login ===');
-    console.log('Login successful:', { username, userId: userInfo.userid });
+    console.log('Login successful:', { username, userId: userInfo.id });
     console.log('Session ID:', req.sessionID);
     console.log('Saving session explicitly...');
 
@@ -235,11 +441,11 @@ app.post('/api/login', async (req, res) => {
 
       console.log('Session saved successfully');
 
-      // Return user info (but NOT the token)
+      // Return user info
       res.json({
         success: true,
         username: username,
-        userId: userInfo.userid,
+        userId: userInfo.id,
         message: 'ログインに成功しました'
       });
     });
@@ -277,10 +483,17 @@ app.post('/api/logout', (req, res) => {
 // Get current user info
 app.get('/api/user/info', requireAuth, async (req, res) => {
   try {
-    const userInfo = await callMoodleAPI(
-      req.session.moodleToken,
-      'core_webservice_get_site_info'
-    );
+    const userInfo = await callMoodleAPI('core_webservice_get_site_info');
+    res.json(userInfo);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Alias for backward compatibility (without /api prefix)
+app.get('/user/info', requireAuth, async (req, res) => {
+  try {
+    const userInfo = await callMoodleAPI('core_webservice_get_site_info');
     res.json(userInfo);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -289,21 +502,49 @@ app.get('/api/user/info', requireAuth, async (req, res) => {
 
 // ==================== MOODLE API ROUTES ====================
 
-// Get courses
+// Get all courses
 app.get('/api/moodle/courses', requireAuth, async (req, res) => {
   try {
-    const result = await callMoodleAPI(
-      req.session.moodleToken,
-      'core_course_get_enrolled_courses_by_timeline_classification',
+    const courses = await callMoodleAPI('core_course_get_courses');
+    res.json(Array.isArray(courses) ? courses : []);
+  } catch (error) {
+    console.error('Get all courses error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get enrolled courses by user ID (with progress)
+app.get('/api/moodle/courses/:userid', requireAuth, requireOwnership, async (req, res) => {
+  try {
+    const { userid } = req.params;
+    const userIdInt = parseInt(userid, 10);
+
+    // Get enrolled courses
+    const courses = await callMoodleAPI(
+      'core_enrol_get_users_courses',
       {
-        classification: 'all',
-        limit: 0,
-        offset: 0
+        userid: userIdInt
       }
     );
-    res.json(result.courses || []);
+
+    if (!Array.isArray(courses) || courses.length === 0) {
+      return res.json([]);
+    }
+
+    // Calculate progress for each course using shared function
+    const coursesWithProgress = await Promise.all(
+      courses.map(async (course) => {
+        const progress = await calculateCourseProgress(course.id, userIdInt);
+        return {
+          ...course,
+          progress
+        };
+      })
+    );
+
+    res.json(coursesWithProgress);
   } catch (error) {
-    console.error('Get courses error:', error.message);
+    console.error('Get enrolled courses error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -313,7 +554,6 @@ app.get('/api/moodle/courses/search', requireAuth, async (req, res) => {
   try {
     const { q } = req.query;
     const result = await callMoodleAPI(
-      req.session.moodleToken,
       'core_course_search_courses',
       {
         criterianame: 'search',
@@ -329,35 +569,8 @@ app.get('/api/moodle/courses/search', requireAuth, async (req, res) => {
 // Get categories
 app.get('/api/moodle/categories', requireAuth, async (req, res) => {
   try {
-    const categories = await callMoodleAPI(
-      req.session.moodleToken,
-      'core_course_get_categories'
-    );
+    const categories = await callMoodleAPI('core_course_get_categories');
     res.json(Array.isArray(categories) ? categories : categories.categories || []);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Create course
-app.post('/api/moodle/courses', requireAuth, async (req, res) => {
-  try {
-    const courseData = req.body;
-
-    const params = {
-      'courses[0][fullname]': courseData.fullname,
-      'courses[0][shortname]': courseData.shortname,
-      'courses[0][categoryid]': courseData.categoryid
-    };
-
-    if (courseData.summary) params['courses[0][summary]'] = courseData.summary;
-
-    const result = await callMoodleAPI(
-      req.session.moodleToken,
-      'core_course_create_courses',
-      params
-    );
-    res.json(result[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -367,11 +580,7 @@ app.post('/api/moodle/courses', requireAuth, async (req, res) => {
 app.get('/api/moodle/courses/:courseid/contents', requireAuth, async (req, res) => {
   try {
     const { courseid } = req.params;
-    const contents = await callMoodleAPI(
-      req.session.moodleToken,
-      'core_course_get_contents',
-      { courseid }
-    );
+    const contents = await callMoodleAPI('core_course_get_contents', { courseid });
     res.json(contents);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -393,11 +602,7 @@ app.post('/api/moodle/courses/:courseid/activities', requireAuth, async (req, re
 
     if (activityData.intro) params['activities[0][intro]'] = activityData.intro;
 
-    const result = await callMoodleAPI(
-      req.session.moodleToken,
-      'core_course_create_activities',
-      params
-    );
+    const result = await callMoodleAPI('core_course_create_activities', params);
     res.json(result[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -407,11 +612,15 @@ app.post('/api/moodle/courses/:courseid/activities', requireAuth, async (req, re
 // Upload file
 app.post('/api/moodle/files/upload', requireAuth, upload.single('file'), async (req, res) => {
   try {
+    if (!serviceAccountToken) {
+      return res.status(500).json({ error: 'Service account token not available' });
+    }
+
     const file = req.file;
     const { courseid } = req.body;
 
     const formData = new FormData();
-    formData.append('wstoken', req.session.moodleToken);
+    formData.append('wstoken', serviceAccountToken);
     formData.append('wsfunction', 'core_files_upload');
     formData.append('moodlewsrestformat', 'json');
     formData.append('contextid', '1');
@@ -436,79 +645,13 @@ app.post('/api/moodle/files/upload', requireAuth, upload.single('file'), async (
 app.post('/api/moodle/api', requireAuth, async (req, res) => {
   try {
     const { wsfunction, params } = req.body;
-    const result = await callMoodleAPI(req.session.moodleToken, wsfunction, params);
+    const result = await callMoodleAPI(wsfunction, params);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// ==================== AI API ROUTES ====================
-
-// AI Summarization
-app.post('/api/ai/summarize', requireAuth, async (req, res) => {
-  try {
-    const { courseId, moduleName, query, maxChunks = 5 } = req.body;
-
-    const response = await axios.post(`${API_SERVER_URL}/api/summarize`, {
-      course_id: courseId,
-      module_name: moduleName,
-      query: query,
-      max_chunks: maxChunks
-    }, {
-      timeout: 60000 // 60 seconds
-    });
-
-    res.json(response.data);
-  } catch (error) {
-    console.error('AI summarization error:', error.message);
-    res.status(500).json({
-      error: error.response?.data?.detail || 'AI要約の生成に失敗しました'
-    });
-  }
-});
-
-// Get course modules for AI
-app.get('/api/ai/courses/:courseId/modules', requireAuth, async (req, res) => {
-  try {
-    const { courseId } = req.params;
-    const response = await axios.get(`${API_SERVER_URL}/api/courses/${courseId}/modules`);
-    res.json(response.data);
-  } catch (error) {
-    console.error('Error fetching course modules:', error.message);
-    res.json({ modules: [] });
-  }
-});
-
-// ==================== DASHBOARD ROUTES ====================
-
-// Get dashboard data (aggregated)
-app.get('/api/dashboard', requireAuth, async (req, res) => {
-  try {
-    // Fetch multiple endpoints in parallel
-    const [courses, categories] = await Promise.all([
-      callMoodleAPI(
-        req.session.moodleToken,
-        'core_course_get_enrolled_courses_by_timeline_classification',
-        { classification: 'all', limit: 0, offset: 0 }
-      ),
-      callMoodleAPI(req.session.moodleToken, 'core_course_get_categories')
-    ]);
-
-    // Transform data
-    const dashboardData = {
-      courses: courses.courses || [],
-      categories: Array.isArray(categories) ? categories : categories.categories || [],
-      totalCourses: courses.courses?.length || 0,
-      lastUpdated: new Date().toISOString()
-    };
-
-    res.json(dashboardData);
-  } catch (error) {
-    console.error('Dashboard error:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
 
 // ==========================================
 // Additional Moodle API Endpoints
@@ -530,7 +673,6 @@ app.get('/api/moodle/getcoursebyfield', requireAuth, async (req, res) => {
     }
 
     const result = await callMoodleAPI(
-      req.session.moodleToken,
       'core_course_get_courses_by_field',
       {
         field: field,
@@ -551,12 +693,7 @@ app.get('/api/moodle/getcoursebyfield', requireAuth, async (req, res) => {
  */
 app.get('/api/moodle/badges', requireAuth, async (req, res) => {
   try {
-    const result = await callMoodleAPI(
-      req.session.moodleToken,
-      'core_badges_get_badges',
-      {}
-    );
-
+    const result = await callMoodleAPI('core_badges_get_badges', {});
     res.json(result);
   } catch (error) {
     console.error('[Moodle GetBadges] Error:', error.message);
@@ -568,12 +705,11 @@ app.get('/api/moodle/badges', requireAuth, async (req, res) => {
  * GET /api/moodle/user-badges/:userid
  * ユーザー獲得バッジを取得
  */
-app.get('/api/moodle/user-badges/:userid', requireAuth, async (req, res) => {
+app.get('/api/moodle/user-badges/:userid', requireAuth, requireOwnership, async (req, res) => {
   try {
     const { userid } = req.params;
 
     const result = await callMoodleAPI(
-      req.session.moodleToken,
       'core_badges_get_user_badges',
       {
         userid: userid
@@ -595,7 +731,7 @@ app.get('/api/moodle/user-badges/:userid', requireAuth, async (req, res) => {
  * GET /api/webcoach/profile/:userid
  * プロフィール情報を取得
  */
-app.get('/api/webcoach/profile/:userid', requireAuth, async (req, res) => {
+app.get('/api/webcoach/profile/:userid', requireAuth, requireOwnership, async (req, res) => {
   try {
     const { userid } = req.params;
 
@@ -625,10 +761,10 @@ app.get('/api/webcoach/profile/:userid', requireAuth, async (req, res) => {
 });
 
 /**
- * POST /api/webcoach/updateprofile/:userid
+ * POST /api/webcoach/profile/:userid
  * プロフィール情報を更新
  */
-app.post('/api/webcoach/updateprofile/:userid', requireAuth, async (req, res) => {
+app.post('/api/webcoach/profile/:userid', requireAuth, requireOwnership, async (req, res) => {
   try {
     const { userid } = req.params;
     const profileData = req.body;
@@ -660,15 +796,16 @@ app.post('/api/webcoach/updateprofile/:userid', requireAuth, async (req, res) =>
 });
 
 /**
- * POST /api/v1/profile/
- * プロフィール情報を保存（v1 API）
+ * POST /api/webcoach/updateprofile/:userid
+ * プロフィール情報を更新
  */
-app.post('/api/v1/profile/', requireAuth, async (req, res) => {
+app.post('/api/webcoach/updateprofile/:userid', requireAuth, requireOwnership, async (req, res) => {
   try {
+    const { userid } = req.params;
     const profileData = req.body;
 
     const response = await axios.post(
-      `${API_SERVER_URL}/api/v1/profile/`,
+      `${API_SERVER_URL}/api/updateprofile/${userid}`,
       profileData,
       {
         headers: {
@@ -680,14 +817,14 @@ app.post('/api/v1/profile/', requireAuth, async (req, res) => {
 
     res.json(response.data);
   } catch (error) {
-    console.error('[Profile Save v1] Error:', error.message);
+    console.error('[WebCoach UpdateProfile] Error:', error.message);
 
     if (error.response) {
       return res.status(error.response.status).json(error.response.data);
     }
 
     res.status(500).json({
-      error: 'Failed to save profile',
+      error: 'Failed to update profile',
       detail: error.message
     });
   }
@@ -695,12 +832,13 @@ app.post('/api/v1/profile/', requireAuth, async (req, res) => {
 
 /**
  * GET /api/webcoach/resumecourse/:userid
- * コース再開情報を取得
+ * コース再開情報を取得（進捗率付き）
  */
-app.get('/api/webcoach/resumecourse/:userid', requireAuth, async (req, res) => {
+app.get('/api/webcoach/resumecourse/:userid', requireAuth, requireOwnership, async (req, res) => {
   try {
     const { userid } = req.params;
     const { limit } = req.query;
+    const userIdInt = parseInt(userid, 10);
 
     const response = await axios.get(
       `${API_SERVER_URL}/api/resumecourse/${userid}`,
@@ -713,7 +851,24 @@ app.get('/api/webcoach/resumecourse/:userid', requireAuth, async (req, res) => {
       }
     );
 
-    res.json(response.data);
+    const resumeCourses = response.data;
+
+    // Add progress calculation for each course
+    if (Array.isArray(resumeCourses) && resumeCourses.length > 0) {
+      const coursesWithProgress = await Promise.all(
+        resumeCourses.map(async (course) => {
+          const progress = await calculateCourseProgress(course.courseid, userIdInt);
+          return {
+            ...course,
+            progress
+          };
+        })
+      );
+
+      return res.json(coursesWithProgress);
+    }
+
+    res.json(resumeCourses);
   } catch (error) {
     console.error('[WebCoach ResumeCourse] Error:', error.message);
 
@@ -729,10 +884,45 @@ app.get('/api/webcoach/resumecourse/:userid', requireAuth, async (req, res) => {
 });
 
 /**
+ * POST /api/webcoach/resumecourse/:userid
+ * コース再開情報を更新
+ */
+app.post('/api/webcoach/resumecourse/:userid', requireAuth, requireOwnership, async (req, res) => {
+  try {
+    const { userid } = req.params;
+    const resumeCourseData = req.body;
+
+    const response = await axios.post(
+      `${API_SERVER_URL}/api/resumecourse/${userid}`,
+      resumeCourseData,
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('[WebCoach UpdateResumeCourse] Error:', error.message);
+
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+
+    res.status(500).json({
+      error: 'Failed to update resume course',
+      detail: error.message
+    });
+  }
+});
+
+/**
  * GET /api/webcoach/recomendbadge/:userid
  * おすすめバッジを取得
  */
-app.get('/api/webcoach/recomendbadge/:userid', requireAuth, async (req, res) => {
+app.get('/api/webcoach/recomendbadge/:userid', requireAuth, requireOwnership, async (req, res) => {
   try {
     const { userid } = req.params;
 
@@ -925,15 +1115,149 @@ app.post('/api/webcoach/updatedb', requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/moodle/course-image
+ * コース画像プロキシ
+ * Moodleの画像URLを受け取り、画像をフェッチしてブラウザに返す
+ */
+app.get('/api/moodle/course-image', async (req, res) => {
+  try {
+    // 複数のパラメータ名をサポート: imageUrl, url, path
+    const imageUrl = req.query.imageUrl || req.query.url || req.query.path;
+
+    if (!imageUrl) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        detail: 'imageUrl, url, or path query parameter is required'
+      });
+    }
+
+    console.log(`[Course Image Proxy] Fetching image: ${imageUrl}`);
+
+    // URLが相対パスの場合は絶対URLに変換
+    let fullUrl = imageUrl;
+    if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
+      fullUrl = `${MOODLE_URL}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
+    }
+
+    // トークンをクエリパラメータに追加
+    const urlObj = new URL(fullUrl);
+    if (serviceAccountToken) {
+      urlObj.searchParams.append('token', serviceAccountToken);
+    }
+
+    // Moodleサーバーから画像を取得
+    const response = await axios.get(urlObj.toString(), {
+      responseType: 'arraybuffer',
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'Moodle-BFF/1.0'
+      }
+    });
+
+    // Content-Typeをレスポンスから取得（デフォルトはimage/png）
+    const contentType = response.headers['content-type'] || 'image/png';
+
+    // 画像データをBase64エンコードして返す（フロントで表示しやすい形式）
+    const base64Image = Buffer.from(response.data, 'binary').toString('base64');
+    const dataUrl = `data:${contentType};base64,${base64Image}`;
+
+    res.json({
+      success: true,
+      imageUrl: dataUrl,
+      contentType: contentType,
+      size: response.data.length
+    });
+
+    console.log(`[Course Image Proxy] Success: ${contentType}, ${response.data.length} bytes`);
+  } catch (error) {
+    console.error('[Course Image Proxy] Error:', error.message);
+
+    if (error.response) {
+      return res.status(error.response.status).json({
+        error: 'Failed to fetch image from Moodle',
+        detail: error.message
+      });
+    }
+
+    res.status(500).json({
+      error: 'Failed to fetch course image',
+      detail: error.message
+    });
+  }
+});
+
 // ==================== HELPER FUNCTIONS ====================
 
-async function callMoodleAPI(token, wsfunction, params = {}) {
+/**
+ * サービスアカウントのトークンを取得
+ * サーバー起動時および定期的にトークンをリフレッシュ
+ */
+async function getServiceAccountToken() {
+  if (!MOODLE_SERVICE_USERNAME || !MOODLE_SERVICE_PASSWORD) {
+    console.error('Service account credentials not configured');
+    throw new Error('Service account credentials not configured. Set MOODLE_SERVICE_USERNAME and MOODLE_SERVICE_PASSWORD');
+  }
+
+  try {
+    console.log(`Authenticating service account: ${MOODLE_SERVICE_USERNAME}`);
+
+    const params = new URLSearchParams();
+    params.append('username', MOODLE_SERVICE_USERNAME);
+    params.append('password', MOODLE_SERVICE_PASSWORD);
+    params.append('service', MOODLE_SERVICE_NAME);
+
+    const response = await axios.post(`${MOODLE_URL}/login/token.php`, params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    });
+
+    if (response.data.error) {
+      throw new Error(response.data.error);
+    }
+
+    serviceAccountToken = response.data.token;
+    console.log('Service account token obtained successfully');
+
+    return serviceAccountToken;
+  } catch (error) {
+    console.error('Failed to get service account token:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * トークンをリフレッシュ（12時間ごと）
+ */
+function startTokenRefresh() {
+  const REFRESH_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
+
+  setInterval(async () => {
+    try {
+      console.log('Refreshing service account token...');
+      await getServiceAccountToken();
+      console.log('Service account token refreshed successfully');
+    } catch (error) {
+      console.error('Failed to refresh service account token:', error.message);
+    }
+  }, REFRESH_INTERVAL);
+}
+
+async function callMoodleAPI(wsfunction, params = {}) {
+  if (!serviceAccountToken) {
+    throw new Error('Service account token not available. Server may still be initializing.');
+  }
+
+  console.log(`[DEBUG] callMoodleAPI: ${wsfunction}`, params);
+
   const formData = new FormData();
-  formData.append('wstoken', token);
+  formData.append('wstoken', serviceAccountToken);
   formData.append('wsfunction', wsfunction);
   formData.append('moodlewsrestformat', 'json');
 
   Object.keys(params).forEach(key => {
+    console.log(`[DEBUG] Appending param: ${key} = ${params[key]} (type: ${typeof params[key]})`);
     formData.append(key, params[key]);
   });
 
@@ -944,12 +1268,13 @@ async function callMoodleAPI(token, wsfunction, params = {}) {
     });
 
     if (response.data?.exception) {
+      console.error(`API Call Failed: ${wsfunction}`, JSON.stringify(response.data, null, 2));
       throw new Error(response.data.message || response.data.errorcode);
     }
 
     return response.data;
   } catch (error) {
-    console.error('Moodle API error:', error.message);
+    console.error(`Moodle API error (${wsfunction}):`, error.message);
     throw error;
   }
 }
@@ -970,13 +1295,26 @@ app.use((req, res) => {
 
 // Start server
 if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`BFF Server running on port ${PORT}`);
-    console.log(`Environment: ${NODE_ENV}`);
-    console.log(`Moodle URL: ${MOODLE_URL}`);
-    console.log(`API Server URL: ${API_SERVER_URL}`);
-  });
+  // サーバー起動時にサービスアカウントでログイン
+  getServiceAccountToken()
+    .then(() => {
+      // トークンリフレッシュを開始
+      startTokenRefresh();
+
+      app.listen(PORT, () => {
+        console.log(`BFF Server running on port ${PORT}`);
+        console.log(`Environment: ${NODE_ENV}`);
+        console.log(`Moodle URL: ${MOODLE_URL}`);
+        console.log(`API Server URL: ${API_SERVER_URL}`);
+        console.log(`Service Account: ${MOODLE_SERVICE_USERNAME}`);
+        console.log(`Authentication mode: Service Account`);
+      });
+    })
+    .catch((error) => {
+      console.error('Failed to initialize service account:', error.message);
+      console.error('Server will not start without service account credentials.');
+      process.exit(1);
+    });
 }
 
 module.exports = app;
-
