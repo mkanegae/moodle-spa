@@ -21,6 +21,7 @@ logs/
 # OS files
 .DS_Store
 Thumbs.db
+*:Zone.Identifier
 
 # IDE
 .vscode/
@@ -41,7 +42,10 @@ coverage/
 
 # MCP configuration with secrets
 mcp.json
-mcp.json:Zone.Identifier
+
+# SSH keys
+*.pem
+*.ppk
 
 # SSL certificates
 ssl/
