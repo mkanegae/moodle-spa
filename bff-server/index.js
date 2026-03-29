@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 3001;
 // Environment variables
 const MOODLE_URL = process.env.MOODLE_URL || 'http://localhost';
 const API_SERVER_URL = process.env.API_SERVER_URL || 'http://localhost:8001';
+const AI_API_URL = process.env.API_SERVER_URL || 'http://localhost:8001';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'change-me-in-production';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
